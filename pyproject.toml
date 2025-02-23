@@ -1,0 +1,36 @@
+[tool.pylint]
+max-line-length = 120
+
+[mypy]
+exclude = [".local", ".terraform", ".venv", ".vscode"]
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 120
+
+[tool.black]
+preview = true
+line-length = 120
+include = '\.py'
+extend-exclude = '''
+/(
+\.git
+| \.pyc
+| \.mypy_cache
+| data-local
+| \.pytest_cache
+| pycache
+| mappings
+| __pycache__
+| \venv
+| \.env
+| \.venv
+| client
+| _build
+| build
+| dist
+)/
+| .mako
+| .pyc
+'''

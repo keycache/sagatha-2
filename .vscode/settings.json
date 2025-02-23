@@ -1,0 +1,17 @@
+{
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        },
+    },
+    "python.analysis.autoImportCompletions": true,
+    // "isort.path": [".venv/bin/isort"],
+    // "isort.args":["--settings-path", "./pyproject.toml"],
+    "isort.args":["--profile", "black"],
+    "black-formatter.args": ["--config", "./pyproject.toml"],
+    "python.analysis.extraPaths": [
+        "./"
+    ],
+}
