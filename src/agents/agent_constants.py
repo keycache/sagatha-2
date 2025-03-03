@@ -1,3 +1,5 @@
+from enum import Enum
+
 from src.agents.response_models import SceneBreakdownGeneratorResponseModel, StoryGeneratorResponseModel
 from src.constants import *  # noqa: F403
 
@@ -7,6 +9,12 @@ class AgentPath:
     SCENE_BREAKDOWN_GENERATOR = ".data/stories"
     STRUCTURED_STORY_ASSET = ".data/stories"
     VIDEO_OUTPUT = ".data/stories"
+
+
+class AspectRatio(str, Enum):
+    PORTRAIT = "portrait"
+    LANDSCAPE = "landscape"
+    SQUARE = "square"
 
 
 STORY_GENERATOR_SYSTEM_PROMPT = f"""

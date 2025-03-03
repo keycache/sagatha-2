@@ -3,18 +3,16 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
+class Character(BaseModel):
+    name: str = Field(..., title="The name of the character")
+    description: str = Field(..., title="A physical description of the character")
+
+
 class StoryGeneratorResponseModel(BaseModel):
     user_prompt: str = Field(..., title="User Prompt used to generate the story")
     title: str = Field(..., title="Title of the story")
-    chapters: List[str] = Field(
-        ...,
-        title="List of chapters in the story. Every chapter should be between 300 to 350 words",
-    )
-    protogonist: str = Field(
-        ...,
-        title="Name and Description(describing the looks and features) of the main character of the story",
-    )
-    characters: List[str] = Field(..., title="List of characters in the story")
+    protogonist: Character = Field(..., title="The protagonist of the story")
+    characters: List[Character] = Field(..., title="List of characters in the story")
     moral: str = Field(..., title="Moral of the story")
 
 
@@ -37,17 +35,15 @@ class SceneBreakdownGeneratorResponseModel(BaseModel):
 
 class StructuredStory(BaseModel):
     title: str = Field(..., title="Title of the story")
-    chapters: List[str] = Field(
-        ..., title="List of chapters in the story. Every chapter should be between 300 to 350 words"
-    )
-    protogonist: str = Field(
-        ..., title="Name and Description(describing the looks and features) of the main character of the story"
-    )
-    characters: List[str] = Field(..., title="List of characters in the story")
+    chapter_count: int = Field(..., title="Number of chapters in the story")
+    chapter_names: List[str] = Field(..., title="List of chapter names in the story")
+    user_prompt: str = Field(..., title="User prompt used to generate the story")
+    protagonist: Character = Field(..., title="The protagonist of the story")
+    characters: List[Character] = Field(..., title="List of characters in the story")
     moral: str = Field(..., title="Moral of the story")
-    scenes: List[List[SceneModel]] = Field(
+    chapters: List[List[SceneModel]] = Field(
         ...,
-        title="List of scenes in the story. The list corresponds to the chapters. All the scenes that make up the chapter should have around 300 to 350 words.",
+        title="List of chapters broken down into scenes. Each chapter should has at least 20 scenes.",
     )
 
 
@@ -66,9 +62,10 @@ class AssetSceneModel(BaseModel):
 
 class StructuredStoryAsset(BaseModel):
     title: str
-    chapters: List[str]
-    protogonist: str
-    characters: List[str]
+    # chapters: List[str]
+    chapter_names: List[str]
+    protogonist: Character
+    characters: List[Character]
     moral: str
     chapter_scenes: List[List[AssetSceneModel]]
     # chapter_scenes = [

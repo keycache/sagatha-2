@@ -12,7 +12,7 @@ from src.utils.file import get_filename
 
 def assimilate_assets(structured_story: StructuredStory, aspect_ratio: str = "portrait"):
     chapter_scenes_assets = []
-    for chapter_number, chapter in enumerate(structured_story.scenes, start=1):
+    for chapter_number, chapter in enumerate(structured_story.chapters, start=1):
         asset_scene_models = []
         for scene_number, scene in enumerate(chapter, start=1):
             print(f"Processing assets for chapter {chapter_number} scene {scene_number}")
@@ -78,8 +78,9 @@ def assimilate_assets(structured_story: StructuredStory, aspect_ratio: str = "po
         chapter_scenes_assets.append(asset_scene_models)
     structured_story_asset = StructuredStoryAsset(
         title=structured_story.title,
-        chapters=structured_story.chapters,
-        protogonist=structured_story.protogonist,
+        # chapters=structured_story.chapters,
+        chapter_names=structured_story.chapter_names,
+        protogonist=structured_story.protagonist,
         characters=structured_story.characters,
         moral=structured_story.moral,
         chapter_scenes=chapter_scenes_assets,
@@ -91,6 +92,6 @@ def assimilate_assets(structured_story: StructuredStory, aspect_ratio: str = "po
 if __name__ == "__main__":
     # structured_story_asset = get_random_structured_story_asset(aspect_ratio="portrait")
     # print(structured_story_asset)
-    path = r".data\stories\timmy-and-buster-a-tail-of-friendship\2-structured-story-timmy-and-buster-a-tail-of-friendship.json"
+    path = r".data\stories\the-boy-and-his-loyal-dog\2-structured-story-the-boy-and-his-loyal-dog.json"
     structured_story: StructuredStory = get_random_structured_story(path)
     assimilate_assets(structured_story, aspect_ratio="portrait")

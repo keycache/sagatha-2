@@ -1,4 +1,5 @@
 import os
+import random
 from typing import List, Optional
 
 from pyexpat import model
@@ -69,7 +70,7 @@ def save_story(
     return save_file(file_path, story.model_dump_json(indent=2), mode, encoding)
 
 
-def save_scene_breakdown(structured_story: StructuredStory, file_path: str = None, mode="w", encoding="utf-8"):
+def save_structured_story(structured_story: StructuredStory, file_path: str = None, mode="w", encoding="utf-8"):
     if not file_path:
         name = to_kebab_case(structured_story.title)
         base_dir = os.path.join(AgentPath.SCENE_BREAKDOWN_GENERATOR, name)
@@ -93,6 +94,16 @@ def save_structured_story_asset(
         file_path = os.path.join(base_dir, f"3-structured-story-asset-{aspect_ratio}-{name}.json")
     print(f"Saving structured_story_asset to: {file_path}")
     return save_file(file_path, structured_story_asset.model_dump_json(indent=2), mode, encoding)
+
+
+def get_asset_image_reference_path(
+    structured_story: StructuredStory,
+    aspect_ratio="portrait",
+):
+    base_path = os.path.join(AgentPath.SCENE_BREAKDOWN_GENERATOR, to_kebab_case(structured_story.title))
+    asset_base_path = os.path.join(base_path, "assets", aspect_ratio)
+    matched_files = get_files_with_prefix(asset_base_path, "imagereference-")
+    return random.choice(matched_files) if matched_files else None
 
 
 def save_asset_image_reference(

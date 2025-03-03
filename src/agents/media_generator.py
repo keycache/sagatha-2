@@ -97,7 +97,7 @@ def generate_video(structured_story_asset: StructuredStoryAsset, aspect_ratio: s
 
 def test():
     # path = None
-    path = r".data\stories\timmy-and-buster-a-tail-of-friendship\3-structured-story-asset-portrait-timmy-and-buster-a-tail-of-friendship.json"
+    path = r".data\stories\the-boy-and-his-loyal-dog\3-structured-story-asset-portrait-the-boy-and-his-loyal-dog.json"
     structured_story_asset: StructuredStoryAsset = get_random_structured_story_asset(
         structured_story_asset_path=path, aspect_ratio="portrait"
     )

@@ -2,7 +2,7 @@ from phi.agent import Agent
 from phi.model.google import Gemini
 
 from src.agents.agent_constants import SCENE_BREAKDOWN_GENERATOR_INSTRUCTIONS, SCENE_BREAKDOWN_GENERATOR_SYSTEM_PROMPT
-from src.agents.agent_utils import get_random_story, get_random_structured_story, save_scene_breakdown
+from src.agents.agent_utils import get_random_story, get_random_structured_story, save_structured_story
 from src.agents.base import BaseAgent
 from src.agents.response_models import (
     SceneBreakdownGeneratorResponseModel,
@@ -41,7 +41,7 @@ class SceneBreakdownGenerator(BaseAgent):
                     print(f"Error: {e}")
                     print(out.content)
                     print(f"Retrying...")
-        save_scene_breakdown(structured_story)
+        save_structured_story(structured_story)
         return structured_story
 
 
