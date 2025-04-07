@@ -32,6 +32,14 @@ def get_files_with_prefix(folder_path, prefix):
     return matching_files
 
 
+def get_file_paths_with_text(folder_path, suffix):
+    if not os.path.exists(folder_path):
+        return []
+    all_files = os.listdir(folder_path)
+    matching_files = [os.path.join(folder_path, file) for file in all_files if suffix in file]
+    return matching_files
+
+
 def get_filename(file_path):
     return os.path.basename(file_path)
 

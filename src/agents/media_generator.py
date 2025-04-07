@@ -1,8 +1,15 @@
 import os
 from typing import List
 
-from moviepy import AudioFileClip, CompositeAudioClip, ImageClip, VideoClip, afx, concatenate_videoclips, vfx
-from numpy import save
+from moviepy import (
+    AudioFileClip,
+    CompositeAudioClip,
+    ImageClip,
+    VideoClip,
+    afx,
+    concatenate_videoclips,
+    vfx,
+)
 
 from src.agents.agent_constants import AgentPath
 from src.agents.agent_utils import get_random_structured_story_asset

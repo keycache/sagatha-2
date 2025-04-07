@@ -1,8 +1,10 @@
 import base64
 import hashlib
+import json
 import re
 import time
 
+from src.constants import StructureType
 from src.utils.file import save_file
 
 
@@ -37,3 +39,14 @@ def timeit(func):
         return result
 
     return wrapper
+
+
+def get_structure_prompts(structure_type: StructureType, prompts_file_path=".data/music/prompts.json"):
+    with open(prompts_file_path, "r", encoding="ISO-8859-1") as file:
+        data = file.read()
+    data = json.loads(data)
+    return data.get(structure_type.name, [])
+
+
+if __name__ == "__main__":
+    print(get_structure_prompts(StructureType.falling_action))
