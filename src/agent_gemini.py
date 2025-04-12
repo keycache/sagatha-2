@@ -1,5 +1,6 @@
 import os
 import pathlib
+import subprocess
 from io import BytesIO
 from typing import Optional
 
@@ -8,6 +9,7 @@ from google import genai
 from google.genai import types
 from PIL import Image
 from PIL.ImageFile import ImageFile
+from pydantic import BaseModel
 
 from src.constants import GEMINI_API_KEY
 
@@ -65,11 +67,20 @@ def generate_image(
         raise e
 
 
-def generate_cover_image(prompt: str, model: str = "gemini-2.0-flash-exp-image-generation") -> Optional[ImageFile]:
+def generate_cover_image(
+    prompt: str,
+    ref_cover_image_path: str = None,
+    model: str = "gemini-2.0-flash-exp-image-generation",
+) -> Optional[ImageFile]:
     print("(generate_cover_image)Generating cover image...")
     client = genai.Client(api_key=GEMINI_API_KEY)
     config = get_config()
-    contents = [types.Content(role="user", parts=[types.Part.from_text(text=prompt)])]
+    contents = []
+    if ref_cover_image_path:
+        contents.append(
+            types.Part.from_bytes(data=pathlib.Path(ref_cover_image_path).read_bytes(), mime_type="image/png")
+        )
+    contents.append(types.Part.from_text(text=prompt))
     response = client.models.generate_content(model=model, contents=contents, config=config)
 
     for part in response.candidates[0].content.parts:
@@ -81,37 +92,43 @@ def generate_cover_image(prompt: str, model: str = "gemini-2.0-flash-exp-image-g
             return new_image
 
 
-if __name__ == "__main__":
-    import json
+def remove_watermark(image_path: str, output_path: str):
+    WM_REMOVAL_EXECUTABLE_PYTHON_PATH = "/opt/homebrew/Caskroom/miniconda/base/envs/py312aiwatermark/bin/python"
+    WM_REMOVAL_SCRIPT_PATH = "/Users/akashpatki/Documents/kash/code/github/WatermarkRemover-AI/image_processor.py"
+    command = [
+        WM_REMOVAL_EXECUTABLE_PYTHON_PATH,
+        WM_REMOVAL_SCRIPT_PATH,
+        image_path,
+        output_path,
+    ]
 
-    from src.models import Story
-
-    story_path = ".data/story/varin-and-the-whispering-map.json"
-    story_path = ".data/story/pistan-and-the-oceans-secret.json"
-
-    with open(story_path, "r") as file:
-        data = json.load(file)
-    story = Story.model_validate(data)
-    cover_image_path = story_path.replace(".json", "-cover-image.png")
-    if not os.path.exists(cover_image_path):
-        prompt = story.chapters[0].get_cover_image_prompt(protagonist=story.protagonist)
-        print(f"Prompt: {prompt}")
-        cover_image = generate_cover_image(prompt=prompt)
-        cover_image.save(cover_image_path)
-        print(f"Cover Image path: {cover_image_path}")
+    print(f"(remove_watermark)Removing watermark from image: {image_path}")
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode:
+        print(f"Error generating narration: {result.stderr}")
     else:
-        print(f"Cover Image already exists: {cover_image_path}")
+        print(f"WM removal completed successfully: {output_path}")
+        return output_path
+    return None
 
-    image_prompts = story.chapters[0].get_image_prompts()
-    # print(f"Image prompts: {image_prompts}")
-    for i, image_prompt in enumerate(image_prompts):
-        image_path = story_path.replace(".json", f"-image-{i}.png")
-        if os.path.exists(image_path):
-            print(f"Image already exists: {image_path}")
-            continue
-        image_prompt = story.chapters[0].get_image_prompt(prompt=image_prompt, protagonist=story.protagonist)
-        print(f"({i})Image prompt: {image_prompt}")
-        image = generate_image(cover_image=Image.open(cover_image_path), prompt=image_prompt)
-        image.save(image_path)
-        print(f"Image path: {image_path}")
-        break
+
+def generate_raw_story(
+    model: BaseModel,
+    system_prompt: str,
+    premise: str,
+    chapter_count: int,
+    model_id: str = "gemini-2.5-pro-preview-03-25",
+) -> BaseModel:
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    config = {"response_mime_type": "application/json", "response_schema": model}
+    user_prompt = f"Generate a story with {chapter_count} chapters. This is the story's premise: {premise}."
+
+    contents = [
+        types.Content(role="model", parts=[types.Part.from_text(text=system_prompt)]),
+        types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)]),
+    ]
+    print(f"(generate_raw_story)Generating story with model: {model_id}")
+    print(f"(generate_raw_story)System Prompt: {system_prompt}")
+    print(f"(generate_raw_story)User Prompt: {user_prompt}")
+    response = client.models.generate_content(model=model_id, contents=contents, config=config)
+    return response.parsed

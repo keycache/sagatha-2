@@ -9,10 +9,15 @@ from PIL import Image
 from PIL.ImageFile import ImageFile
 from pydantic import BaseModel, Field
 
-from src.agent_gemini import generate_cover_image, generate_image
+from src.agent_gemini import (
+    generate_cover_image,
+    generate_image,
+    generate_raw_story,
+    remove_watermark,
+)
 from src.agent_narration import generate_narration
 from src.constants import BASE_PATH, MUSIC_BASE_PATH, AspectRatioDetails, StructureType
-from src.utils.file import get_file_paths_with_text
+from src.prompts import SYSTEM_PROMPT_SHORTS
 from src.utils.helper import get_structure_prompts, to_kebab_case
 
 STRUCTURE_EXPOSITION_BG_MUSIC_PROMPTS = get_structure_prompts(StructureType.exposition)
@@ -145,7 +150,12 @@ class Chapter(BaseModel):
     def get_cover_image(self):
         return self.cover_image.text
 
-    def get_image_prompt(self, prompt: str, protagonist: Character, aspect_ratio: AspectRatioDetails) -> str:
+    def get_image_prompt(
+        self,
+        prompt: str,
+        protagonist: Character,
+        aspect_ratio: AspectRatioDetails,
+    ) -> str:
         return f"""
 These are the details of the protagonist:
 {protagonist.model_dump_json()}
@@ -155,10 +165,16 @@ These are the details of the secondary characters:
 
 Use the attached cover image as a reference for generating a {aspect_ratio.ratio} ratio ({aspect_ratio.mode})image based on the following prompt:
 A detailed {aspect_ratio.mode} view of {prompt}. Specifically, the image must be in a {aspect_ratio.ratio} ({aspect_ratio.mode}) aspect ratio for {aspect_ratio.device} screens.
+Generate image using the style from the attached image.
 Do not generate image as a collage.
 """
 
-    def get_cover_image_prompt(self, protagonist: Character, aspect_ratio: AspectRatioDetails) -> str:
+    def get_cover_image_prompt(
+        self, protagonist: Character, ref_cover_image_available: bool, aspect_ratio: AspectRatioDetails
+    ) -> str:
+        style_instructions = (
+            "Generate image using the style from the attached image" if ref_cover_image_available else ""
+        )
         prompt = f"""
 These are the details of the protagonist:
 {protagonist.model_dump_json()}
@@ -171,11 +187,19 @@ A detailed {aspect_ratio.mode} of {self.cover_image.text}
 
 The only words allowed in the image are the chapter title. Do not include any other text in the image.
 The tile and the characters should be in the center 70% of the image.
+{style_instructions}
 """
         return prompt
 
-    def generate_cover_image(self, protagonist: Character):
-        cover_image_prompt = self.get_cover_image_prompt(protagonist=protagonist)
+    def generate_cover_image(
+        self,
+        protagonist: Character,
+        aspect_ratio: AspectRatioDetails,
+        ref_cover_image_path: str = None,
+    ) -> ImageFile:
+        cover_image_prompt = self.get_cover_image_prompt(
+            protagonist=protagonist, ref_cover_image_path=bool(ref_cover_image_path), aspect_ratio=aspect_ratio
+        )
         cover_image = generate_cover_image(prompt=cover_image_prompt)
         return cover_image
 
@@ -245,8 +269,20 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
         cover_image_target = self.get_active_target(chapter.cover_image)
         if force or cover_image_target is None:
             print(f"(generate_cover_image)Generating Cover Image for {chapter.title}")
-            cover_image_prompt = chapter.get_cover_image_prompt(protagonist=self.protagonist, aspect_ratio=aspect_ratio)
-            cover_image: ImageFile = generate_cover_image(prompt=cover_image_prompt)
+            ref_cover_image_path = None
+            if chapter.chapter_number != 1:
+                ref_cover_image_path = self.get_cover_image_path(self.chapters[0], aspect_ratio)
+                print(f"(generate_cover_image)Ref Cover Image path: {ref_cover_image_path}")
+
+            cover_image_prompt = chapter.get_cover_image_prompt(
+                protagonist=self.protagonist,
+                aspect_ratio=aspect_ratio,
+                ref_cover_image_available=bool(ref_cover_image_path),
+            )
+            cover_image: ImageFile = generate_cover_image(
+                prompt=cover_image_prompt,
+                ref_cover_image_path=ref_cover_image_path,
+            )
             target_version = 0 if chapter.cover_image.targets is None else len(chapter.cover_image.targets)
             cover_image_path = self.save_cover_image(
                 cover_image, chapter, version=target_version, aspect_ratio=aspect_ratio
@@ -278,17 +314,25 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
         image_target = self.get_active_target(image_asset)
         if force or image_target is None:
             print(f"(generate_image)Generating Image for {chapter.title} - {image_asset.text}")
-            cover_image_path = self.generate_cover_image(chapter=chapter, aspect_ratio=aspect_ratio)
+            cover_image_path = self.generate_cover_image(
+                chapter=chapter,
+                aspect_ratio=aspect_ratio,
+            )
 
             image_prompt = chapter.get_image_prompt(
-                image_asset.text, protagonist=self.protagonist, aspect_ratio=aspect_ratio
+                image_asset.text,
+                protagonist=self.protagonist,
+                aspect_ratio=aspect_ratio,
             )
             image: ImageFile = generate_image(prompt=image_prompt, cover_image_path=cover_image_path)
-            image = image.resize((aspect_ratio.height, aspect_ratio.width))
             # image: ImageFile = generate_image(prompt=image_prompt, cover_image=Image.open(cover_image_path))
 
             # handle the targets in image_asset
             target_version = 0 if image_asset.targets is None else len(image_asset.targets)
+            image_path = self.save_image(image, chapter, suffix=f"{suffix}-{target_version}", aspect_ratio=aspect_ratio)
+            # post process - resize, remove watermark, etc.
+            remove_watermark(image_path, image_path)
+            image = image.resize((aspect_ratio.height, aspect_ratio.width))
             image_path = self.save_image(image, chapter, suffix=f"{suffix}-{target_version}", aspect_ratio=aspect_ratio)
             _ = self.handle_asset(image_asset, image_path)
         else:
@@ -357,13 +401,14 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
     def get_story_path(self):
         return os.path.join(self.get_story_folder(), f"{to_kebab_case(self.title)}.json")
 
-    def save(self, file_path: str = None):
+    def save(self, file_path: str = None) -> str:
         if file_path is None:
             file_path = self.get_story_path()
 
         with open(file_path, "w") as fh:
             fh.write(self.model_dump_json(indent=2))
         print(f"Story saved to {file_path}")
+        return file_path
 
     def reset_images(self):
         for chapter in self.chapters:
@@ -403,13 +448,15 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
         self.save()
         print("Assets reset successfully.")
 
-    def validate_assets(self):
+    def validate_assets(self, chapter_number: int = None) -> dict:
         missing = {
             "image": [],
             "narration": [],
             "background_music": [],
         }
         for chapter in self.chapters:
+            if chapter_number is not None and chapter.chapter_number != chapter_number:
+                continue
             for structure in chapter.structures:
                 for scene in structure.scenes:
                     for asset in scene.image:
@@ -429,16 +476,18 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
                     missing["background_music"].append(structure.background_music.text)
                 else:
                     target = self.get_active_target(structure.background_music)
-                    print(f"Target: {target}, {structure.background_music.text}")
+                    # print(f"Target: {target}, {structure.background_music.text}")
                     if target is None:
                         print(f"-------{structure.background_music}")
                     if not os.path.exists(target.value):
                         missing["background_music"].append(structure.background_music.text)
         return missing
 
-    def generate_narrations(self):
+    def generate_narrations(self, chapter_number: int = None) -> List[str]:
         narration_paths = []
         for chapter in self.chapters:
+            if chapter_number is not None and chapter.chapter_number != chapter_number:
+                continue
             for structure in chapter.structures:
                 for i, scene in enumerate(structure.scenes):
                     print(f"({i+1}/{len(structure.scenes)})Processing narration for {structure.type.value}")
@@ -503,51 +552,25 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
                     return structure.background_music
         return None
 
-    def get_cover_image_path(self, chapter: Chapter, aspect_ratio: AspectRatioDetails) -> str:
-        story_folder = os.path.join(BASE_PATH, to_kebab_case(self.title))
-        chapter_path = os.path.join(
-            story_folder, f"{chapter.chapter_number}-{to_kebab_case(chapter.title)}", aspect_ratio.mode
-        )
-        file_paths = sorted(get_file_paths_with_text(chapter_path, suffix="-cover-image-"))
-        print(f"File paths: {file_paths}, chapter_path: {chapter_path}")
-        return file_paths[-1] if file_paths else None
+    def get_cover_image_path(self, chapter: Chapter, aspect_ratio: AspectRatioDetails) -> Optional[str]:
+        cover_image_target = self.get_active_target(chapter.cover_image)
+        if cover_image_target:
+            return cover_image_target.value
+
+        # story_folder = os.path.join(BASE_PATH, to_kebab_case(self.title))
+        # chapter_path = os.path.join(
+        #     story_folder, f"{chapter.chapter_number}-{to_kebab_case(chapter.title)}", aspect_ratio.mode
+        # )
+        # file_paths = sorted(get_file_paths_with_text(chapter_path, suffix="-cover-image-"))
+        # print(f"File paths: {file_paths}, chapter_path: {chapter_path}")
+        # return file_paths[-1] if file_paths else None
         # return cover_image_path if os.path.exists(cover_image_path) else None
 
+    @staticmethod
+    def generate_short_story(premise, chapter_count=8) -> str:
 
-if __name__ == "__main__":
-    from src.constants import AspectRatio
-
-    # print(Story.model_json_schema())
-    path = ".data/story/pistan-and-the-oceans-secret/pistan-and-the-oceans-secret.json"
-    path = ".data/story/pistans-backyard-adventures/pistans-backyard-adventures.json"
-    path = ".data/story/pistan-and-the-whispering-cave-secret/pistan-and-the-whispering-cave-secret.json"
-    path = ".data/text/story.json"
-    path = ".data/story/pistan-and-the-mystery-of-the-shimmering-feathers/pistan-and-the-mystery-of-the-shimmering-feathers.json"
-    with open(path, "r") as file:
-        data = json.load(file)
-        story = Story.model_validate(data)
-        # story.reset_assets()
-
-        # story.generate_background_music()
-        # story.generate_narrations()
-
-        # print(story.validate_assets())
-
-        # story.generate_narration(story.chapters[0].structures[0].scenes[0].narration, story.chapters[0])
-        # print(STRUCTURE_FALLING_ACTION_BG_MUSIC_PROMPTS)
-        # story.reset_assets(asset_type=AssetType.BG_MUSIC)
-        # story.generate_cover_image(story.chapters[0], aspect_ratio=AspectRatio.AR_9_16)
-        # story.generate_image(
-        #     story.chapters[0].structures[2].scenes[0].image[0],
-        #     story.chapters[0],
-        #     aspect_ratio=AspectRatio.AR_9_16,
-        #     force=True,
-        # )
-        # asset = story.get_asset_by_target_value(
-        #     ".data/story/pistan-and-the-mystery-of-the-shimmering-feathers/1-the-whispering-trail/portrait/the-whispering-trail-image-2-0-3-0.png"
-        # )
-        # story.generate_image(asset, story.chapters[0], aspect_ratio=AspectRatio.AR_9_16, force=True)
-        print(story.get_cover_image_path(story.chapters[0], aspect_ratio=AspectRatio.AR_9_16))
-        # story.generate_narration()
-        # image_paths = story.generate_images(aspect_ratio=AspectRatio.AR_9_16)
-        # print(image_paths)
+        system_prompt = SYSTEM_PROMPT_SHORTS.format(story_schema=Story.model_json_schema())
+        story: Story = generate_raw_story(
+            model=Story, system_prompt=system_prompt, premise=premise, chapter_count=chapter_count
+        )
+        return story.save()

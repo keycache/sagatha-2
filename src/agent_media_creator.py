@@ -1,4 +1,8 @@
-from httpx import get
+import os
+import subprocess
+import tempfile
+from typing import List
+
 from moviepy import (
     AudioFileClip,
     CompositeAudioClip,
@@ -18,6 +22,108 @@ from src.constants import (
 )
 from src.models import Chapter, Scene, Story, Structure
 from src.utils.helper import to_kebab_case
+
+
+def get_base_video_path_for_story(story: Story) -> str:
+    return os.path.join(".data/story", to_kebab_case(story.title))
+
+
+def create_temp_file(file_paths: List[str]) -> str:
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, mode="w", encoding="utf-8") as temp_file:
+            content = "\n".join([f"file {file_path}" for file_path in file_paths])
+            temp_file.write(content)
+            return temp_file.name
+    finally:
+        # Make sure to close the file so it's saved properly
+        temp_file.close()
+
+
+def create_chapter_video(chapter: Chapter, story: Story, aspect_ratio: AspectRatioDetails) -> str:
+
+    chapter_title = to_kebab_case(chapter.title)
+    base_video_path = get_base_video_path_for_story(story)
+    chapter_video_folder = f"{base_video_path}/{chapter.chapter_number}-{chapter_title}/{aspect_ratio.mode}"
+    intro_video_path = create_intro_video(chapter, story, aspect_ratio)
+    out_file_paths = [os.path.abspath(intro_video_path)] if intro_video_path else []
+
+    for structure in chapter.structures:
+        print(f"Generating video for structure: {structure.type.value}")
+        structure_clip = get_structure_clip(structure, story)
+        file_name = f"{chapter_video_folder}/{structure.type.value}.mp4"
+        render_video(structure_clip, file_name)
+        out_file_paths.append(os.path.abspath(file_name))
+    structures_video_file_path = create_temp_file(out_file_paths)
+    chapter_video_file_path = f"{chapter_video_folder}/{chapter_title}.mp4"
+    print(f"Structures video file path: {structures_video_file_path}")
+    print(f"All video file paths: {out_file_paths}")
+
+    command = [
+        "ffmpeg",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        structures_video_file_path,
+        "-c",
+        "copy",
+        "-y",
+        chapter_video_file_path,
+    ]
+
+    # Run the command
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode:
+        print(f"Error generating narration: {result.stderr}")
+    else:
+        print(f"Chapter video generated successfully: {chapter_video_file_path}")
+        return chapter_video_file_path
+    return None
+
+
+def create_intro_video(chapter: Chapter, story: Story, aspect_ratio: AspectRatioDetails) -> str:
+    print(f"Generating intro video for chapter: {chapter.title}")
+    chapter_title = to_kebab_case(chapter.title)
+    base_video_path = get_base_video_path_for_story(story)
+    chapter_video_folder = f"{base_video_path}/{chapter.chapter_number}-{chapter_title}/{aspect_ratio.mode}"
+    intro_video_path = f"{chapter_video_folder}/0-intro.mp4"
+    cover_image_path = story.get_cover_image_path(chapter, aspect_ratio=aspect_ratio)
+    if not cover_image_path:
+        raise ValueError(f"Cover image not found for chapter: {chapter.title}")
+    command = [
+        "ffmpeg",
+        "-loop",
+        "1",
+        "-i",
+        cover_image_path,
+        "-f",
+        "lavfi",
+        "-t",
+        "2",
+        "-i",
+        "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-shortest",
+        "-vf",
+        f"scale={aspect_ratio.height}:{aspect_ratio.width},fps={VIDEO_FPS}",
+        "-c:v",
+        "libx264",
+        "-c:a",
+        "aac",
+        "-pix_fmt",
+        "yuv420p",
+        intro_video_path,
+        "-y",
+    ]
+    # Run the command
+    print("Generating intro video...")
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode:
+        print(f"Error generating narration: {result.stderr}")
+    else:
+        print(f"Chapter intro video generated successfully: {intro_video_path}")
+        return intro_video_path
+    return None
 
 
 def get_structure_clip(structure: Structure, story: Story) -> VideoClip:
@@ -63,24 +169,29 @@ def get_structure_clip(structure: Structure, story: Story) -> VideoClip:
 
 def get_chapter_clip(chapter: Chapter, story: Story, aspect_ratio: AspectRatioDetails) -> VideoClip:
     title = to_kebab_case(chapter.title)
+    base_video_path = get_base_video_path_for_story(story)
+    chapter_video_folder = (
+        f"{base_video_path}/{chapter.chapter_number}-{to_kebab_case(chapter.title)}/{aspect_ratio.mode}"
+    )
     cover_image_path = story.get_cover_image_path(chapter, aspect_ratio=aspect_ratio)
     if not cover_image_path:
         raise ValueError(f"Cover image not found for chapter: {chapter.title}")
     intro_clip = ImageClip(cover_image_path).with_duration(1).with_fps(VIDEO_FPS)
     intro_file_path = f".data/video/{title}-intro.mp4"
     render_video(intro_clip, intro_file_path)
-    out_file_paths = [intro_file_path]
+    out_file_paths = []
     for structure in chapter.structures:
         print(f"Generating video for structure: {structure.type.value}")
         structure_clip = get_structure_clip(structure, story)
-        file_name = f".data/video/{to_kebab_case(chapter.title)}-{structure.type.value}.mp4"
+        file_name = f"{chapter_video_folder}/{structure.type.value}.mp4"
         render_video(structure_clip, file_name)
-        out_file_paths.append(file_name)
+        out_file_paths.append(os.path.abspath(file_name))
     # chapter_clips = [get_structure_clip(structure, story) for structure in chapter.structures]
     # chapter_clip = concatenate_videoclips(chapter_clips)
     # print(f"Chapter video duration: {chapter_clip.duration}")
 
     # return concatenate_videoclips([intro_clip, chapter_clip])
+    print(out_file_paths)
     return out_file_paths
 
 
@@ -93,15 +204,3 @@ def get_scene_targets(scene: Scene, story: Story) -> VideoClip:
 def render_video(clip: VideoClip, output_path: str, codec="libx264", audio_codec="aac") -> None:
     clip.write_videofile(output_path, codec=codec, audio_codec=audio_codec)
     return output_path
-
-
-if __name__ == "__main__":
-    import json
-
-    path = ".data/story/pistan-and-the-mystery-of-the-shimmering-feathers/pistan-and-the-mystery-of-the-shimmering-feathers.json"
-    with open(path, "r") as file:
-        data = json.load(file)
-        story = Story.model_validate(data)
-    # clip = get_structure_clip(structure=story.chapters[0].structures[0], story=story)
-    clip = get_chapter_clip(chapter=story.chapters[0], story=story, aspect_ratio=AspectRatio.AR_9_16)
-    # render_video(clip, ".data/video/test.mp4")
