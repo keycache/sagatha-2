@@ -9,12 +9,7 @@ from PIL import Image
 from PIL.ImageFile import ImageFile
 from pydantic import BaseModel, Field
 
-from src.agent_gemini import (
-    generate_cover_image,
-    generate_image,
-    generate_raw_story,
-    remove_watermark,
-)
+from src.agent_gemini import generate_cover_image, generate_image, generate_raw_story, remove_watermark
 from src.agent_narration import generate_narration
 from src.constants import BASE_PATH, MUSIC_BASE_PATH, AspectRatioDetails, StructureType
 from src.prompts import SYSTEM_PROMPT_SHORTS
@@ -374,10 +369,12 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
         self.save()
         return targets
 
-    def generate_images(self, aspect_ratio: AspectRatioDetails) -> List[str]:
+    def generate_images(self, chapter_number: int, aspect_ratio: AspectRatioDetails) -> List[str]:
         story_image_paths = []
         for i, chapter in enumerate(self.chapters):
             print(f"Chapter: {chapter.title} Word Count: {chapter.get_word_count()}")
+            if chapter_number is not None and chapter.chapter_number != chapter_number:
+                continue
             cover_image_path = self.generate_cover_image(chapter=chapter, aspect_ratio=aspect_ratio)
             story_image_paths.append(cover_image_path)
             for j, structure in enumerate(chapter.structures):
@@ -389,7 +386,6 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
                         story_image_paths.append(image_path)
                         print("Sleeping for 10 seconds to avoid rate limiting")
                         time.sleep(10)
-            break
         print(f"Story Image Paths: {story_image_paths}")
         return story_image_paths
 
@@ -495,8 +491,11 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
                     narration_paths.append(narration_path)
         return narration_paths
 
-    def generate_background_music(self):
+    def generate_background_music(self, chapter_number: int = None):
         for chapter in self.chapters:
+            if chapter_number is not None and chapter.chapter_number != chapter_number:
+                continue
+            print(f"Chapter: {chapter.title} Word Count: {chapter.get_word_count()}")
             for structure in chapter.structures:
                 structure_prompts = get_structure_prompts(structure.type)
                 background_music = structure.background_music
@@ -522,10 +521,12 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
                         print(structure_prompts, structure.type, list(BG_MUSIC_PROMPTS.keys()))
                         raise e
 
-    def validate_background_music(self):
+    def validate_background_music(self, chapter_number: int = None):
         prompts = get_prompt_bank()
         count = 0
         for chapter in self.chapters:
+            if chapter_number is not None and chapter.chapter_number != chapter_number:
+                continue
             for structure in chapter.structures:
                 if structure.background_music.text not in prompts:
                     print(f"({structure.type})Background music prompt not found: {structure.background_music.text}")

@@ -8,18 +8,14 @@ from moviepy import (
     CompositeAudioClip,
     ImageClip,
     VideoClip,
+    VideoFileClip,
     afx,
     concatenate_audioclips,
     concatenate_videoclips,
     vfx,
 )
 
-from src.constants import (
-    BACKGROUND_MUSIC_VOLUME,
-    VIDEO_FPS,
-    AspectRatio,
-    AspectRatioDetails,
-)
+from src.constants import BACKGROUND_MUSIC_VOLUME, VIDEO_FPS, AspectRatio, AspectRatioDetails
 from src.models import Chapter, Scene, Story, Structure
 from src.utils.helper import to_kebab_case
 
@@ -78,6 +74,7 @@ def create_chapter_video(chapter: Chapter, story: Story, aspect_ratio: AspectRat
         print(f"Error generating narration: {result.stderr}")
     else:
         print(f"Chapter video generated successfully: {chapter_video_file_path}")
+        post_process_video(chapter_video_file_path, aspect_ratio)
         return chapter_video_file_path
     return None
 
@@ -201,6 +198,33 @@ def get_scene_targets(scene: Scene, story: Story) -> VideoClip:
     return narration_target, images_targets
 
 
-def render_video(clip: VideoClip, output_path: str, codec="libx264", audio_codec="aac") -> None:
+def render_video(clip: VideoClip, output_path: str, codec="libx264", audio_codec="aac") -> str:
     clip.write_videofile(output_path, codec=codec, audio_codec=audio_codec)
     return output_path
+
+
+def post_process_video(video_path: str, aspect_ratio_details: AspectRatioDetails):
+    video_file_clip = VideoFileClip(video_path)
+    speed_factor = video_file_clip.duration / aspect_ratio_details.duration
+    if speed_factor > 1:
+        temp_path = f"{video_path.replace('.mp4', '-adjusted.mp4')}"
+        command = [
+            "ffmpeg",
+            "-i",
+            video_path,
+            "-filter_complex",
+            f"[0:v]setpts=PTS/{speed_factor}[v];[0:a]atempo={speed_factor}[a]",
+            "-map",
+            "[v]",
+            "-map",
+            "[a]",
+            temp_path,
+            "-y",
+        ]
+        # Run the command
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode:
+            print(f"Error postprocessing the file: {result.stderr}")
+        else:
+            os.replace(temp_path, video_path)
+            print(f"Video generated successfully: {video_path}")
