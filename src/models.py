@@ -260,14 +260,17 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
             if target.active and os.path.exists(target.value):
                 return target
 
+    def get_reference_cover_image(self, chapter: Chapter, aspect_ratio: AspectRatioDetails) -> bool:
+        ref_cover_image_path = None
+        if chapter.chapter_number != 1:
+            ref_cover_image_path = self.get_cover_image_path(self.chapters[0], aspect_ratio)
+        return ref_cover_image_path
+
     def generate_cover_image(self, chapter: Chapter, aspect_ratio: AspectRatioDetails, force=False) -> str:
         cover_image_target = self.get_active_target(chapter.cover_image)
         if force or cover_image_target is None:
             print(f"(generate_cover_image)Generating Cover Image for {chapter.title}")
-            ref_cover_image_path = None
-            if chapter.chapter_number != 1:
-                ref_cover_image_path = self.get_cover_image_path(self.chapters[0], aspect_ratio)
-                print(f"(generate_cover_image)Ref Cover Image path: {ref_cover_image_path}")
+            ref_cover_image_path = self.get_reference_cover_image(chapter, aspect_ratio)
 
             cover_image_prompt = chapter.get_cover_image_prompt(
                 protagonist=self.protagonist,
