@@ -3,7 +3,7 @@ import os
 import random
 import time
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from PIL import Image
 from PIL.ImageFile import ImageFile
@@ -124,6 +124,12 @@ class Chapter(BaseModel):
         ...,
         description="Cover image asset that represents the chapter. The image should be a collage of all the characters in the chapter. The image should also include the chapter title.",
     )
+
+    def get_structure(self, structure_name: str) -> Optional[Structure]:
+        for structure in self.structures:
+            if structure.type.value == structure_name:
+                return structure
+        return None
 
     def get_characters(self) -> List[str]:
         return [character.model_dump_json() for character in self.characters]
@@ -537,7 +543,7 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
         if count > 0:
             print(f"Background music prompt not found in {count} instances.")
 
-    def get_asset_by_target_value(self, value: str) -> Optional[Asset]:
+    def get_asset_by_target_value(self, value: str) -> Optional[Tuple[Asset, Chapter]]:
         def _get_target_by_value(targets: List[Target], value: str) -> Optional[Target]:
             for target in targets:
                 if target.value == value:
@@ -549,12 +555,12 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
                 for scene in structure.scenes:
                     for asset in scene.image:
                         if _get_target_by_value(asset.targets, value) is not None:
-                            return asset
+                            return asset, chapter
                     if _get_target_by_value(scene.narration.targets, value) is not None:
-                        return scene.narration
+                        return scene.narration, chapter
                 if _get_target_by_value(structure.background_music.targets, value) == value:
-                    return structure.background_music
-        return None
+                    return structure.background_music, chapter
+        return None, None
 
     def get_cover_image_path(self, chapter: Chapter, aspect_ratio: AspectRatioDetails) -> Optional[str]:
         cover_image_target = self.get_active_target(chapter.cover_image)

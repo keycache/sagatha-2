@@ -1,10 +1,7 @@
-from re import S
-
 import streamlit as st
-from httpx import get
 
 from src.constants import AspectRatioDetails
-from src.models import Chapter, Story
+from src.models import Asset, Chapter, Story, Structure
 from src.ui.utils import (
     activate_target,
     get_aspect_ratio_map,
@@ -27,6 +24,7 @@ class Constants:
     COVER_IMAGES = "Cover Images"
     GENERATE_STORY = "Generate Story"
     INSPECT_STORY = "Inspect Story"
+    SCENE_IMAGES = "Scene Images"
 
 
 class Key:
@@ -39,9 +37,10 @@ class Key:
     ASPECT_RATIO_MAP = "aspect_ratio_map"
     STORY_PREMISE = "story_premise"
     STORY_CHAPTER_COUNT = "story_chapter_count"
+    SCENE_IMAGES_STRUCTURE_SELECT = "scene_images_structure_select"
 
 
-SIDEBAR_OPTIONS = [Constants.COVER_IMAGES, Constants.GENERATE_STORY, Constants.INSPECT_STORY]
+SIDEBAR_OPTIONS = [Constants.COVER_IMAGES, Constants.GENERATE_STORY, Constants.INSPECT_STORY, Constants.SCENE_IMAGES]
 
 
 def render_sidebar():
@@ -57,6 +56,93 @@ def render_sidebar():
     st.sidebar.selectbox("Select a story", list(story_map.keys()), key=Key.STORY_NAME)
     st.sidebar.selectbox("Select an option", SIDEBAR_OPTIONS, key=Key.COVER_IMAGES)
     st.sidebar.radio("Select Aspect Ratio", list(aspect_ratio_map.keys()), key=Key.ASPECT_RATIO)
+
+
+def render_scene_images():
+    def handle_generate_cover_image(**kwargs):
+        image_path = kwargs["image_path"]
+        story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+        asset, chapter = story.get_asset_by_target_value(image_path)
+        if asset is None:
+            st.toast("No image available for this structure.")
+            return
+        # print(f"Generating image for asset: {asset} and chapter: {chapter.title}")
+        aspect_ratio: AspectRatioDetails = get_key(Key.ASPECT_RATIO_MAP)[get_key(Key.ASPECT_RATIO)]
+        image_path = story.generate_image(asset, chapter, aspect_ratio=aspect_ratio, force=True)
+        st.toast(f"Image generated at: {image_path}")
+        set_key(Key.STORY_MAP, get_stories_map())
+
+    def handle_check(**kwargs):
+        index, targets, story = kwargs["index"], kwargs["targets"], get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+        print(f"Checkbox clicked for index: {index}, targets: {len(targets)}")
+        targets = activate_target(targets, index)
+        story.save()
+
+    def get_image_prompt(image_asset: Asset):
+        story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+        aspect_ratio: AspectRatioDetails = get_key(Key.ASPECT_RATIO_MAP)[get_key(Key.ASPECT_RATIO)]
+        image_prompt = chapter.get_image_prompt(
+            image_asset.text,
+            protagonist=story.protagonist,
+            aspect_ratio=aspect_ratio,
+        )
+        return image_prompt
+
+    story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+    chapters_map = get_chapters_map(story)
+    selected_chapter = st.radio(
+        "Select a chapter for scene images",
+        list(chapters_map.keys()),
+        key=Key.CHAPTER_NAME,
+        horizontal=True,
+    )
+    chapter: Chapter = chapters_map[selected_chapter]
+    structures_col, scenes_col = st.columns([3, 9])
+    with structures_col:
+        st.header("Structures")
+        structure_names = [structure.type.value for structure in chapter.structures]
+        st.radio(
+            "Select a structure",
+            structure_names,
+            key=Key.SCENE_IMAGES_STRUCTURE_SELECT,
+            horizontal=False,
+        )
+
+    with scenes_col:
+        st.header("Scenes")
+        selected_structure = get_key(Key.SCENE_IMAGES_STRUCTURE_SELECT)
+        structure: Structure = chapter.get_structure(selected_structure)
+        for i, scene in enumerate(structure.scenes):
+            for j, image in enumerate(scene.image):
+                targets = image.targets
+                if not targets:
+                    st.warning("No images available for this structure.")
+                    return
+                col1, col2 = st.columns([9, 3])
+                col1.header(f"Scene {i + 1} - Image {j + 1}")
+                col2.button(
+                    "Generate New Image",
+                    type="primary",
+                    key=f"generate_image_{i}_{j}",
+                    on_click=handle_generate_cover_image,
+                    kwargs={"image_path": targets[0].value},
+                )
+
+                with st.container():
+                    for k, col in enumerate(st.columns(len(targets))):
+                        with col:
+                            st.image(targets[k].value, width=300)
+                            st.checkbox(
+                                " ",
+                                value=targets[k].active,
+                                key=f"checkbox_{i}_{j}_{k}",
+                                on_change=handle_check,
+                                kwargs={"index": k, "targets": targets},
+                                disabled=len(targets) <= 1,
+                            )
+                image_prompt = get_image_prompt(image)
+                st.markdown("### Image Prompt")
+                st.markdown(f"`{image_prompt}`")
 
 
 def render_cover_images():
@@ -171,6 +257,8 @@ def render():
         render_generate_story()
     elif sidebar_option == Constants.INSPECT_STORY:
         render_inspect_story()
+    elif sidebar_option == Constants.SCENE_IMAGES:
+        render_scene_images()
 
 
 if __name__ == "__main__":
