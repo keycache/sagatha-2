@@ -453,40 +453,96 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
         self.save()
         print("Assets reset successfully.")
 
-    def validate_assets(self, chapter_number: int = None) -> dict:
-        missing = {
-            "image": [],
-            "narration": [],
-            "background_music": [],
-        }
-        for chapter in self.chapters:
-            if chapter_number is not None and chapter.chapter_number != chapter_number:
+    def are_targets_available(self, asset: Asset) -> bool:
+        if asset.targets is None:
+            return False
+        if not any([os.path.exists(target.value) for target in asset.targets]):
+            return False
+        return True
+
+    def are_targets_valid(self, asset: Asset) -> bool:
+        if not self.are_targets_available(asset):
+            return False
+        if self.get_active_target(asset) is None:
+            return False
+        return True
+
+    def validate_narration(self, chapter_index: int = None):
+        missing = []
+        for i, chapter in enumerate(self.chapters):
+            if chapter_index is not None and i != chapter_index:
                 continue
-            for structure in chapter.structures:
-                for scene in structure.scenes:
-                    for asset in scene.image:
-                        if asset.targets is None:
-                            missing["image"].append(asset.text)
-                        else:
-                            target = self.get_active_target(asset)
-                            if not os.path.exists(target.value):
-                                missing["image"].append(asset.text)
-                    if scene.narration.targets is None:
-                        missing["narration"].append(scene.narration.text)
-                    else:
-                        target = self.get_active_target(scene.narration)
-                        if not os.path.exists(target.value):
-                            missing["narration"].append(scene.narration.text)
-                if structure.background_music.targets is None:
-                    missing["background_music"].append(structure.background_music.text)
-                else:
-                    target = self.get_active_target(structure.background_music)
-                    # print(f"Target: {target}, {structure.background_music.text}")
-                    if target is None:
-                        print(f"-------{structure.background_music}")
-                    if not os.path.exists(target.value):
-                        missing["background_music"].append(structure.background_music.text)
+            for j, structure in enumerate(chapter.structures):
+                for k, scene in enumerate(structure.scenes):
+                    if not self.are_targets_available(scene.narration):
+                        missing.append(
+                            {
+                                "chapter": i,
+                                "structure": j,
+                                "scene": k,
+                                "narration": scene.narration.text,
+                            }
+                        )
+
         return missing
+
+    def validate_background_music(self, chapter_index: int = None):
+        missing = []
+        for i, chapter in enumerate(self.chapters):
+            if chapter_index is not None and i != chapter_index:
+                continue
+            for j, structure in enumerate(chapter.structures):
+                if not self.are_targets_available(structure.background_music):
+                    missing.append(
+                        {
+                            "chapter": i,
+                            "structure": j,
+                            "background_music": structure.background_music.text,
+                        }
+                    )
+        return missing
+
+    def validate_cover_image(self, chapter_index: int = None):
+        missing = []
+        for i, chapter in enumerate(self.chapters):
+            if chapter_index is not None and i != chapter_index:
+                continue
+            if not self.are_targets_available(chapter.cover_image):
+                missing.append(
+                    {
+                        "chapter": i,
+                        "cover_image": chapter.cover_image.text,
+                    }
+                )
+        return missing
+
+    def validate_images(self, chapter_index: int = None) -> dict:
+        missing = []
+        for i, chapter in enumerate(self.chapters):
+            if chapter_index is not None and i != chapter_index:
+                continue
+            for j, structure in enumerate(chapter.structures):
+                for k, scene in enumerate(structure.scenes):
+                    for l, asset in enumerate(scene.image):
+                        if not self.are_targets_available(asset):
+                            missing.append(
+                                {
+                                    "chapter": i,
+                                    "structure": j,
+                                    "scene": k,
+                                    "image_index": l,
+                                    "image": asset.text,
+                                }
+                            )
+        return missing
+
+    def validate_assets(self, chapter_index: int = None) -> dict:
+        return {
+            "image": self.validate_images(chapter_index),
+            "narration": self.validate_narration(chapter_index),
+            "background_music": self.validate_background_music(chapter_index),
+            "cover_image": self.validate_cover_image(chapter_index),
+        }
 
     def generate_narrations(self, chapter_number: int = None) -> List[str]:
         narration_paths = []
@@ -529,19 +585,6 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
                         print(f"Error generating background music: {e}")
                         print(structure_prompts, structure.type, list(BG_MUSIC_PROMPTS.keys()))
                         raise e
-
-    def validate_background_music(self, chapter_number: int = None):
-        prompts = get_prompt_bank()
-        count = 0
-        for chapter in self.chapters:
-            if chapter_number is not None and chapter.chapter_number != chapter_number:
-                continue
-            for structure in chapter.structures:
-                if structure.background_music.text not in prompts:
-                    print(f"({structure.type})Background music prompt not found: {structure.background_music.text}")
-                    count += 1
-        if count > 0:
-            print(f"Background music prompt not found in {count} instances.")
 
     def get_asset_by_target_value(self, value: str) -> Optional[Tuple[Asset, Chapter]]:
         def _get_target_by_value(targets: List[Target], value: str) -> Optional[Target]:

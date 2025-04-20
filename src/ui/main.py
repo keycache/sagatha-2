@@ -1,3 +1,4 @@
+import pandas as pd
 import pyperclip
 import streamlit as st
 
@@ -22,12 +23,25 @@ st.set_page_config(
 
 
 class Constants:
+    ALL = "All"
     COVER_IMAGES = "Cover Images"
     GENERATE_STORY = "Generate Story"
     INSPECT_STORY = "Inspect Story"
     SCENE_IMAGES = "Scene Images"
     BG_MUSIC = "Background Music"
     NARRATION = "Narration"
+    VALIDATE_ASSETS = "Validate Assets"
+
+
+SIDEBAR_OPTIONS = [
+    Constants.GENERATE_STORY,
+    Constants.INSPECT_STORY,
+    Constants.COVER_IMAGES,
+    Constants.SCENE_IMAGES,
+    Constants.BG_MUSIC,
+    Constants.NARRATION,
+    Constants.VALIDATE_ASSETS,
+]
 
 
 class Key:
@@ -41,16 +55,7 @@ class Key:
     STORY_PREMISE = "story_premise"
     STORY_CHAPTER_COUNT = "story_chapter_count"
     SCENE_IMAGES_STRUCTURE_SELECT = "scene_images_structure_select"
-
-
-SIDEBAR_OPTIONS = [
-    Constants.GENERATE_STORY,
-    Constants.INSPECT_STORY,
-    Constants.COVER_IMAGES,
-    Constants.SCENE_IMAGES,
-    Constants.BG_MUSIC,
-    Constants.NARRATION,
-]
+    VALIDATE_ASSET = "validate_asset"
 
 
 def render_sidebar():
@@ -262,7 +267,7 @@ def render_inspect_story():
         st.markdown(f"### {structure.type.upper()}")
         for j, scene in enumerate(structure.scenes):
             # st.text_area(label=f"Scene {j+1}", value=scene.narration.text, key=f"scene_{i}_{j}")
-            st.write(scene.narration.text, key=f"scene_{i}_{j}")
+            st.write(scene.narration.text)
 
 
 def render_background_music():
@@ -310,6 +315,52 @@ def render_narration():
         st.divider()
 
 
+def render_validate_assets():
+    story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+    chapters_map = get_chapters_map(story)
+    st.title(f"Validate Assets: {story.title}")
+    selected_chapter = st.radio(
+        "Select a chapter for narration assets",
+        list(chapters_map.keys()) + [Constants.ALL],
+        key=Key.CHAPTER_NAME,
+        horizontal=True,
+    )
+    OPTIONS = [Constants.COVER_IMAGES, Constants.SCENE_IMAGES, Constants.BG_MUSIC, Constants.NARRATION, Constants.ALL]
+    chapter: Chapter = chapters_map[selected_chapter] if selected_chapter != Constants.ALL else None
+    chapter_index = chapter.chapter_number - 1 if chapter else None
+    st.segmented_control(
+        "Select an option to validate",
+        OPTIONS,
+        key=Key.VALIDATE_ASSET,
+        selection_mode="single",
+    )
+    selected_option = get_key(Key.VALIDATE_ASSET)
+    missing = []
+    if selected_option == Constants.COVER_IMAGES:
+        missing = story.validate_cover_image(chapter_index=chapter_index)
+    elif selected_option == Constants.SCENE_IMAGES:
+        missing = story.validate_images(chapter_index=chapter_index)
+    elif selected_option == Constants.BG_MUSIC:
+        missing = story.validate_background_music(chapter_index=chapter_index)
+    elif selected_option == Constants.NARRATION:
+        missing = story.validate_narration(chapter_index=chapter_index)
+    elif selected_option == Constants.ALL:
+        missing_assets = story.validate_assets(chapter_index=chapter_index)
+        print("Missing assets:", missing_assets)
+        for asset_type, missing in missing_assets.items():
+            if missing:
+                with st.expander(f"Missing {asset_type}"):
+                    df = pd.DataFrame(missing)
+                    st.table(df)
+        return
+
+    if missing:
+        df = pd.DataFrame(missing)
+        st.table(df)
+    elif selected_option is not None:
+        st.toast(f"{selected_option}:No missing assets found.")
+
+
 def render():
     render_sidebar()
     sidebar_option = get_key(Key.COVER_IMAGES)
@@ -325,6 +376,8 @@ def render():
         render_background_music()
     elif sidebar_option == Constants.NARRATION:
         render_narration()
+    elif sidebar_option == Constants.VALIDATE_ASSETS:
+        render_validate_assets()
 
 
 if __name__ == "__main__":
