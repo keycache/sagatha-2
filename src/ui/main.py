@@ -1,3 +1,4 @@
+import pyperclip
 import streamlit as st
 
 from src.constants import AspectRatioDetails
@@ -25,6 +26,7 @@ class Constants:
     GENERATE_STORY = "Generate Story"
     INSPECT_STORY = "Inspect Story"
     SCENE_IMAGES = "Scene Images"
+    BG_MUSIC = "Background Music"
 
 
 class Key:
@@ -40,7 +42,13 @@ class Key:
     SCENE_IMAGES_STRUCTURE_SELECT = "scene_images_structure_select"
 
 
-SIDEBAR_OPTIONS = [Constants.COVER_IMAGES, Constants.GENERATE_STORY, Constants.INSPECT_STORY, Constants.SCENE_IMAGES]
+SIDEBAR_OPTIONS = [
+    Constants.COVER_IMAGES,
+    Constants.GENERATE_STORY,
+    Constants.INSPECT_STORY,
+    Constants.SCENE_IMAGES,
+    Constants.BG_MUSIC,
+]
 
 
 def render_sidebar():
@@ -87,6 +95,10 @@ def render_scene_images():
             aspect_ratio=aspect_ratio,
         )
         return image_prompt
+
+    def handle_copy_image_path_to_clipboard(**kwargs):
+        image_path = kwargs["image_path"]
+        pyperclip.copy(image_path)
 
     story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
     chapters_map = get_chapters_map(story)
@@ -139,6 +151,12 @@ def render_scene_images():
                                 on_change=handle_check,
                                 kwargs={"index": k, "targets": targets},
                                 disabled=len(targets) <= 1,
+                            )
+                            st.button(
+                                ":clipboard:",
+                                key=f"copy_{i}_{j}_{k}",
+                                on_click=handle_copy_image_path_to_clipboard,
+                                kwargs={"image_path": targets[k].value},
                             )
                 image_prompt = get_image_prompt(image)
                 st.markdown("### Image Prompt")
@@ -248,6 +266,28 @@ def render_inspect_story():
             st.write(scene.narration.text, key=f"scene_{i}_{j}")
 
 
+def render_background_music():
+    st.title(get_key(Key.STORY_NAME))
+    chapters_map = get_chapters_map(get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)])
+    selected_chapter = st.radio(
+        "Select a chapter for cover",
+        list(chapters_map.keys()),
+        key=Key.CHAPTER_NAME,
+        horizontal=True,
+    )
+    story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+    chapter: Chapter = get_chapters_map(story)[selected_chapter]
+    for i, structure in enumerate(chapter.structures):
+        st.markdown(f"### {structure.type.upper()}")
+        for j, target in enumerate(structure.background_music.targets):
+            col1, col2 = st.columns([9, 3])
+            col1.audio(target.value, format="audio/wav")
+            col2.button(":clipboard:", key=f"copy_{i}_{j}", on_click=pyperclip.copy, args=(target.value,))
+        st.markdown("#### Background Music Prompt")
+        st.code(wrap_lines=True, body=structure.background_music.text)
+        st.divider()
+
+
 def render():
     render_sidebar()
     sidebar_option = get_key(Key.COVER_IMAGES)
@@ -259,6 +299,8 @@ def render():
         render_inspect_story()
     elif sidebar_option == Constants.SCENE_IMAGES:
         render_scene_images()
+    elif sidebar_option == Constants.BG_MUSIC:
+        render_background_music()
 
 
 if __name__ == "__main__":
