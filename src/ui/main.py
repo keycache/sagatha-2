@@ -44,9 +44,9 @@ class Key:
 
 
 SIDEBAR_OPTIONS = [
-    Constants.COVER_IMAGES,
     Constants.GENERATE_STORY,
     Constants.INSPECT_STORY,
+    Constants.COVER_IMAGES,
     Constants.SCENE_IMAGES,
     Constants.BG_MUSIC,
     Constants.NARRATION,
@@ -98,12 +98,9 @@ def render_scene_images():
         )
         return image_prompt
 
-    def handle_copy_image_path_to_clipboard(**kwargs):
-        image_path = kwargs["image_path"]
-        pyperclip.copy(image_path)
-
     story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
     chapters_map = get_chapters_map(story)
+    st.title(f"Scene Images: {story.title}")
     selected_chapter = st.radio(
         "Select a chapter for scene images",
         list(chapters_map.keys()),
@@ -157,8 +154,8 @@ def render_scene_images():
                             st.button(
                                 ":clipboard:",
                                 key=f"copy_{i}_{j}_{k}",
-                                on_click=handle_copy_image_path_to_clipboard,
-                                kwargs={"image_path": targets[k].value},
+                                on_click=pyperclip.copy,
+                                args=(targets[k].value,),
                             )
                 image_prompt = get_image_prompt(image)
                 st.markdown("### Image Prompt")
@@ -179,10 +176,10 @@ def render_cover_images():
         targets = activate_target(targets, index)
         story.save()
 
-    st.title(get_key(Key.STORY_NAME))
+    st.title(f"Cover Images: {get_key(Key.STORY_NAME)}")
     chapters_cover_images_targets = get_cover_images_targets(get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)])
     selected_chapter = st.radio(
-        "Select a chapter for cover",
+        "Select a chapter for cover images assets",
         list(chapters_cover_images_targets.keys()),
         key=Key.CHAPTER_NAME,
         horizontal=True,
