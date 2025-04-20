@@ -27,6 +27,7 @@ class Constants:
     INSPECT_STORY = "Inspect Story"
     SCENE_IMAGES = "Scene Images"
     BG_MUSIC = "Background Music"
+    NARRATION = "Narration"
 
 
 class Key:
@@ -48,6 +49,7 @@ SIDEBAR_OPTIONS = [
     Constants.INSPECT_STORY,
     Constants.SCENE_IMAGES,
     Constants.BG_MUSIC,
+    Constants.NARRATION,
 ]
 
 
@@ -160,7 +162,7 @@ def render_scene_images():
                             )
                 image_prompt = get_image_prompt(image)
                 st.markdown("### Image Prompt")
-                st.markdown(f"`{image_prompt}`")
+                st.code(image_prompt, wrap_lines=True)
 
 
 def render_cover_images():
@@ -267,10 +269,10 @@ def render_inspect_story():
 
 
 def render_background_music():
-    st.title(get_key(Key.STORY_NAME))
+    st.title(f"Background Music: {get_key(Key.STORY_NAME)}")
     chapters_map = get_chapters_map(get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)])
     selected_chapter = st.radio(
-        "Select a chapter for cover",
+        "Select a chapter for bg music assets",
         list(chapters_map.keys()),
         key=Key.CHAPTER_NAME,
         horizontal=True,
@@ -288,6 +290,29 @@ def render_background_music():
         st.divider()
 
 
+def render_narration():
+    story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+    chapters_map = get_chapters_map(story)
+    st.title(f"Narration: {story.title}")
+    selected_chapter = st.radio(
+        "Select a chapter for narration assets",
+        list(chapters_map.keys()),
+        key=Key.CHAPTER_NAME,
+        horizontal=True,
+    )
+    chapter: Chapter = chapters_map[selected_chapter]
+    for i, structure in enumerate(chapter.structures):
+        st.markdown(f"### {structure.type.upper()}")
+        for j, scene in enumerate(structure.scenes):
+            for k, target in enumerate(scene.narration.targets):
+                col1, col2 = st.columns([9, 3])
+                col1.audio(target.value, format="audio/wav")
+                col2.button(":clipboard:", key=f"copy_{i}_{j}_{k}", on_click=pyperclip.copy, args=(target.value,))
+            st.markdown("#### Narration Prompt")
+            st.code(wrap_lines=True, body=scene.narration.text)
+        st.divider()
+
+
 def render():
     render_sidebar()
     sidebar_option = get_key(Key.COVER_IMAGES)
@@ -301,6 +326,8 @@ def render():
         render_scene_images()
     elif sidebar_option == Constants.BG_MUSIC:
         render_background_music()
+    elif sidebar_option == Constants.NARRATION:
+        render_narration()
 
 
 if __name__ == "__main__":
