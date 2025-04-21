@@ -13,6 +13,7 @@ from src.agent_gemini import generate_cover_image, generate_image, generate_raw_
 from src.agent_narration import generate_narration
 from src.constants import BASE_PATH, MUSIC_BASE_PATH, AspectRatioDetails, StructureType
 from src.prompts import SYSTEM_PROMPT_SHORTS
+from src.styles import COVER_IMAGE_DESCRIPTION, ImageStyle
 from src.utils.helper import get_structure_prompts, to_kebab_case
 
 STRUCTURE_EXPOSITION_BG_MUSIC_PROMPTS = get_structure_prompts(StructureType.exposition)
@@ -80,7 +81,20 @@ class Prompt(BaseModel):
 class Scene(BaseModel):
     image: List[Asset] = Field(
         ...,
-        description="Image Assets to visually portray the scene. Depending on the length of narration, plas adjust the entries accordingly. Thumb rule: 1 image per 20-30 words of narration. Ensure that the image assets are relevant to the narration and in order. The image assets should be in the same order as the narration.",
+        description="""Image Assets to visually portray the scene. Depending on the length of narration, plas adjust the entries accordingly. Thumb rule: 1 image per 20-30 words of narration. Ensure that the image assets are relevant to the narration and in order. The image assets should be in the same order as the narration. Ensure a maximum of 3 characters to be present in the image prompt. If more are needed, include them in the background. The prompt should be atleast 15 to 20 words long. Generate the prompt using the following template:
+Scene: [Brief description of environment and lighting]
+
+Characters:
+- [Character 1 name]: [physical description, clothing, accessories, expressions]
+- [Character 2 name]: [same]
+- [Character 3 name]: [same]
+
+Layout: [Describe spatial relationships — left/right/centered, heights, poses, eye contact, interactions]
+
+View: [camera angle — front view, side view, from above, etc.]
+
+Consistency Note: Maintain all character appearances and proportions from earlier scenes.
+""",
     )
     narration: Asset = Field(
         ...,
@@ -120,10 +134,7 @@ class Chapter(BaseModel):
         ...,
         description="Structures in the chapter. The end of the chapter should be a hook and includes the moral of the story.",
     )
-    cover_image: Asset = Field(
-        ...,
-        description="Cover image asset that represents the chapter. The image should be a collage of all the characters in the chapter. The image should also include the chapter title.",
-    )
+    cover_image: Asset = Field(..., description=COVER_IMAGE_DESCRIPTION)
 
     def get_structure(self, structure_name: str) -> Optional[Structure]:
         for structure in self.structures:
@@ -154,52 +165,46 @@ class Chapter(BaseModel):
     def get_image_prompt(
         self,
         prompt: str,
-        protagonist: Character,
         aspect_ratio: AspectRatioDetails,
+        style: ImageStyle = None,
     ) -> str:
         return f"""
-These are the details of the protagonist:
-{protagonist.model_dump_json()}
-
-These are the details of the secondary characters:
-{self.get_characters()}
 
 Use the attached cover image as a reference for generating a {aspect_ratio.ratio} ratio ({aspect_ratio.mode})image based on the following prompt:
-A detailed {aspect_ratio.mode} view of {prompt}. Specifically, the image must be in a {aspect_ratio.ratio} ({aspect_ratio.mode}) aspect ratio for {aspect_ratio.device} screens.
+An {aspect_ratio.mode} image in the following style: {style.value}.
+
+{prompt}
+
+Specifically, the image must be in a {aspect_ratio.ratio} ({aspect_ratio.mode}) aspect ratio for {aspect_ratio.device} screens.
 Generate image using the style from the attached image.
 Do not generate image as a collage.
 """
 
     def get_cover_image_prompt(
-        self, protagonist: Character, ref_cover_image_available: bool, aspect_ratio: AspectRatioDetails
+        self, ref_cover_image_available: bool, aspect_ratio: AspectRatioDetails, style: ImageStyle
     ) -> str:
         style_instructions = (
-            "Generate image using the style from the attached image" if ref_cover_image_available else ""
+            "Generate image using the style from the attached image. Maintain the similar image style."
+            if ref_cover_image_available
+            else ""
         )
         prompt = f"""
-These are the details of the protagonist:
-{protagonist.model_dump_json()}
-
-These are the details of the secondary characters:
-{self.get_characters()}
-
-Generate a {aspect_ratio} aspect ratio {aspect_ratio.mode} image for the cover image of the chapter based on the following prompt:
-A detailed {aspect_ratio.mode} of {self.cover_image.text}
-
+Generate a {aspect_ratio.ratio} aspect ratio {aspect_ratio.mode} image for the cover image of the chapter based on the following prompt:
+A{aspect_ratio.mode} with following details:\n{self.cover_image.text}
+Generate the image in the style of a {style.value}.
 The only words allowed in the image are the chapter title. Do not include any other text in the image.
-The tile and the characters should be in the center 70% of the image.
 {style_instructions}
 """
         return prompt
 
     def generate_cover_image(
         self,
-        protagonist: Character,
         aspect_ratio: AspectRatioDetails,
+        style: ImageStyle,
         ref_cover_image_path: str = None,
     ) -> ImageFile:
         cover_image_prompt = self.get_cover_image_prompt(
-            protagonist=protagonist, ref_cover_image_path=bool(ref_cover_image_path), aspect_ratio=aspect_ratio
+            ref_cover_image_path=bool(ref_cover_image_path), aspect_ratio=aspect_ratio, style=style
         )
         cover_image = generate_cover_image(prompt=cover_image_prompt)
         return cover_image
@@ -272,16 +277,16 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
             ref_cover_image_path = self.get_cover_image_path(self.chapters[0], aspect_ratio)
         return ref_cover_image_path
 
-    def generate_cover_image(self, chapter: Chapter, aspect_ratio: AspectRatioDetails, force=False) -> str:
+    def generate_cover_image(
+        self, chapter: Chapter, aspect_ratio: AspectRatioDetails, style: ImageStyle, force=False
+    ) -> str:
         cover_image_target = self.get_active_target(chapter.cover_image)
         if force or cover_image_target is None:
             print(f"(generate_cover_image)Generating Cover Image for {chapter.title}")
             ref_cover_image_path = self.get_reference_cover_image(chapter, aspect_ratio)
 
             cover_image_prompt = chapter.get_cover_image_prompt(
-                protagonist=self.protagonist,
-                aspect_ratio=aspect_ratio,
-                ref_cover_image_available=bool(ref_cover_image_path),
+                aspect_ratio=aspect_ratio, style=style, ref_cover_image_available=bool(ref_cover_image_path)
             )
             cover_image: ImageFile = generate_cover_image(
                 prompt=cover_image_prompt,
@@ -311,23 +316,15 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
                         return f"{i}-{j}"
 
     def generate_image(
-        self, image_asset: Asset, chapter: Chapter, aspect_ratio: AspectRatioDetails, force=False
+        self, image_asset: Asset, chapter: Chapter, aspect_ratio: AspectRatioDetails, style: ImageStyle, force=False
     ) -> str:
-
         suffix = self._get_suffix(chapter, image_asset)
         image_target = self.get_active_target(image_asset)
         if force or image_target is None:
             print(f"(generate_image)Generating Image for {chapter.title} - {image_asset.text}")
-            cover_image_path = self.generate_cover_image(
-                chapter=chapter,
-                aspect_ratio=aspect_ratio,
-            )
+            cover_image_path = self.generate_cover_image(chapter=chapter, aspect_ratio=aspect_ratio, style=style)
 
-            image_prompt = chapter.get_image_prompt(
-                image_asset.text,
-                protagonist=self.protagonist,
-                aspect_ratio=aspect_ratio,
-            )
+            image_prompt = chapter.get_image_prompt(image_asset.text, aspect_ratio=aspect_ratio, style=style)
             image: ImageFile = generate_image(prompt=image_prompt, cover_image_path=cover_image_path)
             # image: ImageFile = generate_image(prompt=image_prompt, cover_image=Image.open(cover_image_path))
 
@@ -378,22 +375,23 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
         self.save()
         return targets
 
-    def generate_images(self, chapter_number: int, aspect_ratio: AspectRatioDetails) -> List[str]:
+    def generate_images(self, chapter_index: int, aspect_ratio: AspectRatioDetails, style: ImageStyle) -> List[str]:
         story_image_paths = []
         for i, chapter in enumerate(self.chapters):
             print(f"Chapter: {chapter.title} Word Count: {chapter.get_word_count()}")
-            if chapter_number is not None and chapter.chapter_number != chapter_number:
+            if chapter_index is not None and i != chapter_index:
                 continue
-            cover_image_path = self.generate_cover_image(chapter=chapter, aspect_ratio=aspect_ratio)
+            cover_image_path = self.generate_cover_image(chapter=chapter, aspect_ratio=aspect_ratio, style=style)
             story_image_paths.append(cover_image_path)
             for j, structure in enumerate(chapter.structures):
                 for k, scene in enumerate(structure.scenes):
-                    for i, asset in enumerate(scene.image):
+                    for l, asset in enumerate(scene.image):
                         print("--" * 20)
-                        print(f"({i+1}/{len(scene.image)})Processing image for {structure.type.value}")
-                        image_path = self.generate_image(asset, chapter, aspect_ratio=aspect_ratio)
+                        print(f"({l+1}/{len(scene.image)})Processing image for {structure.type.value}")
+                        image_path = self.generate_image(asset, chapter, aspect_ratio=aspect_ratio, style=style)
                         story_image_paths.append(image_path)
                         print("Sleeping for 10 seconds to avoid rate limiting")
+                        print("--" * 20)
                         time.sleep(10)
         print(f"Story Image Paths: {story_image_paths}")
         return story_image_paths
@@ -544,10 +542,10 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
             "cover_image": self.validate_cover_image(chapter_index),
         }
 
-    def generate_narrations(self, chapter_number: int = None) -> List[str]:
+    def generate_narrations(self, chapter_index: int = None) -> List[str]:
         narration_paths = []
-        for chapter in self.chapters:
-            if chapter_number is not None and chapter.chapter_number != chapter_number:
+        for i, chapter in enumerate(self.chapters):
+            if chapter_index is not None and i != chapter_index:
                 continue
             for structure in chapter.structures:
                 for i, scene in enumerate(structure.scenes):
@@ -556,9 +554,9 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
                     narration_paths.append(narration_path)
         return narration_paths
 
-    def generate_background_music(self, chapter_number: int = None):
-        for chapter in self.chapters:
-            if chapter_number is not None and chapter.chapter_number != chapter_number:
+    def generate_background_music(self, chapter_index: int = None):
+        for i, chapter in enumerate(self.chapters):
+            if chapter_index is not None and i != chapter_index:
                 continue
             print(f"Chapter: {chapter.title} Word Count: {chapter.get_word_count()}")
             for structure in chapter.structures:
