@@ -103,6 +103,15 @@ def render_scene_images():
         )
         return image_prompt
 
+    def generate_all_images(**kwargs):
+        story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+        aspect_ratio = kwargs["aspect_ratio"]
+        style = kwargs["style"]
+        for i, chapter in enumerate(story.chapters):
+            print(f"Generating images for chapter-{i}: {chapter.title}")
+            story.generate_images(i, aspect_ratio=aspect_ratio, style=style)
+        set_key(Key.STORY_MAP, get_stories_map())
+
     story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
     chapters_map = get_chapters_map(story)
     st.title(f"Scene Images: {story.title}")
@@ -113,6 +122,26 @@ def render_scene_images():
         horizontal=True,
     )
     chapter: Chapter = chapters_map[selected_chapter]
+    _, chapter_col, story_col = st.columns([6, 3, 3])
+    chapter_col.button(
+        "Generate All Images for Chapter",
+        type="secondary",
+        on_click=story.generate_images,
+        kwargs={
+            "chapter_index": chapter.chapter_number - 1,
+            "aspect_ratio": get_key(Key.ASPECT_RATIO_MAP)[get_key(Key.ASPECT_RATIO)],
+            "style": ImageStyle.STORY_BOOK_CLASSIC,
+        },
+    )
+    story_col.button(
+        "Generate All Images for Story",
+        type="tertiary",
+        on_click=generate_all_images,
+        kwargs={
+            "aspect_ratio": get_key(Key.ASPECT_RATIO_MAP)[get_key(Key.ASPECT_RATIO)],
+            "style": ImageStyle.STORY_BOOK_CLASSIC,
+        },
+    )
     structures_col, scenes_col = st.columns([3, 9])
     with structures_col:
         st.header("Structures")
