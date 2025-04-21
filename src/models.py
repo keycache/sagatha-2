@@ -11,7 +11,15 @@ from pydantic import BaseModel, Field
 
 from src.agent_gemini import generate_cover_image, generate_image, generate_raw_story, remove_watermark
 from src.agent_narration import generate_narration
-from src.constants import BASE_PATH, MUSIC_BASE_PATH, AspectRatio, AspectRatioDetails, StructureType
+from src.constants import (
+    BASE_PATH,
+    MUSIC_BASE_PATH,
+    AspectRatio,
+    AspectRatioDetails,
+    ResourceMode,
+    ResourceTarget,
+    StructureType,
+)
 from src.prompts import SYSTEM_PROMPT_SHORTS
 from src.styles import COVER_IMAGE_DESCRIPTION, ImageStyle
 from src.utils.helper import get_structure_prompts, to_kebab_case
@@ -156,6 +164,21 @@ class Structure(BaseModel):
         return total
 
 
+class ResourceTargets(BaseModel):
+    target_type: ResourceTarget = Field(
+        ..., description="The target type of the resource. This will be the type of the resource in the target system."
+    )
+    url: str = Field(
+        ..., description="The URL of the resource. This will be the URL to the resource in the target system."
+    )
+
+
+class Resource(BaseModel):
+    mode: ResourceMode = Field(..., description="The mode/orientation of the resource.")
+    value: str = Field(..., description="Value of the resource. Path to the resource in the (non-target)system.")
+    targets: Optional[List[ResourceTargets]] = None
+
+
 class Chapter(BaseModel):
     title: str = Field(..., description="Chapter title")
     description: str = Field(
@@ -171,6 +194,22 @@ class Chapter(BaseModel):
         description="Structures in the chapter. The end of the chapter should be a hook and includes the moral of the story.",
     )
     cover_image: Asset = Field(..., description=COVER_IMAGE_DESCRIPTION)
+    resources: Optional[List[Resource]] = None
+
+    def add_resource(self, aspect_ratio: AspectRatioDetails, file_path: str) -> Resource:
+        if self.resources is None:
+            self.resources = []
+        resources = list(filter(lambda x: x.value == file_path, self.resources))
+        if resources:
+            print(f"Resource already exists: {resources[0]}")
+            return resources[0]
+        resource = Resource(
+            mode=aspect_ratio.mode,
+            value=file_path,
+        )
+        self.resources.append(resource)
+        print(f"Resource added: {resource}")
+        return resource
 
     def get_structure(self, structure_name: str) -> Optional[Structure]:
         for structure in self.structures:
@@ -661,3 +700,7 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
             model=Story, system_prompt=system_prompt, premise=premise, chapter_count=chapter_count
         )
         return story.save()
+
+    def add_resource(self, chapter: Chapter, aspect_ratio: AspectRatioDetails, file_path: str):
+        chapter.add_resource(aspect_ratio=aspect_ratio, file_path=file_path)
+        self.save()

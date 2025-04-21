@@ -16,7 +16,6 @@ IMAGE_GENERATION_MODEL_NAME = "test"
 VIDEO_FPS = 30
 BACKGROUND_MUSIC_VOLUME = 0.3
 BASE_PATH = ".data/story"
-
 MUSIC_BASE_PATH = ".data/music"
 
 
@@ -36,6 +35,20 @@ class AspectRatio:
             if isinstance(ar, AspectRatioDetails) and ar.mode == mode:
                 return ar
         raise None
+
+
+class ResourceTarget(str, Enum):
+    YOUTUBE = "youtube"
+    INSTAGRAM = "instagram"
+    TWITTER = "twitter"
+    TIKTOK = "tiktok"
+    FACEBOOK = "facebook"
+
+
+class ResourceMode(str, Enum):
+    PORTRAIT = "portrait"
+    LANDSCAPE = "landscape"
+    SQUARE = "square"
 
 
 class StructureType(str, Enum):
