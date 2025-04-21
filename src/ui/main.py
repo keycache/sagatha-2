@@ -333,6 +333,12 @@ def render_background_music():
 
 
 def render_narration():
+    def _generate_all_narrations(**kwargs):
+        story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+        for i, chapter in enumerate(story.chapters):
+            print(f"Generating narration for chapter-{i}: {chapter.title}")
+            story.generate_narrations(i)
+
     story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
     chapters_map = get_chapters_map(story)
     st.title(f"Narration: {story.title}")
@@ -343,6 +349,14 @@ def render_narration():
         horizontal=True,
     )
     chapter: Chapter = chapters_map[selected_chapter]
+    _, chapter_col, story_col = st.columns([6, 3, 3])
+    chapter_col.button(
+        "Generate All Narration for Chapter",
+        type="secondary",
+        on_click=story.generate_narrations,
+        kwargs={"chapter_index": chapter.chapter_number - 1},
+    )
+    story_col.button("Generate All Narration for Story", type="tertiary", on_click=_generate_all_narrations)
     for i, structure in enumerate(chapter.structures):
         st.markdown(f"### {structure.type.upper()}")
         for j, scene in enumerate(structure.scenes):
