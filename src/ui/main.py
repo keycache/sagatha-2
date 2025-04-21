@@ -312,16 +312,15 @@ def render_background_music():
     )
     story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
     chapter: Chapter = get_chapters_map(story)[selected_chapter]
+    st.button(
+        "Generate BG Music",
+        type="primary",
+        key="generate_bg_music",
+        on_click=story.generate_background_music,
+        kwargs={"chapter_index": chapter.chapter_number - 1},
+    )
     for i, structure in enumerate(chapter.structures):
-        col1, col2 = st.columns([9, 3])
-        col1.markdown(f"### {structure.type.upper()}")
-        col2.button(
-            "Generate New BG Music",
-            type="primary",
-            key=f"generate_bg_music_{i}",
-            on_click=story.generate_background_music,
-            kwargs={"chapter_index": chapter.chapter_number - 1},
-        )
+        st.markdown(f"### {structure.type.upper()}")
         if structure.background_music.targets is not None:
             for j, target in enumerate(structure.background_music.targets):
                 col1, col2 = st.columns([9, 3])
