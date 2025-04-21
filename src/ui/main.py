@@ -5,12 +5,13 @@ import streamlit as st
 from src.constants import AspectRatioDetails
 from src.models import Asset, Chapter, Story, Structure
 from src.styles import ImageStyle
+from src.ui.constants import Constants, Key
 from src.ui.utils import (
     activate_target,
-    get_aspect_ratio_map,
     get_chapters_map,
     get_cover_images_targets,
     get_key,
+    get_settings_ardetails,
     get_stories_map,
     set_key,
 )
@@ -23,19 +24,7 @@ st.set_page_config(
 )
 
 
-class Constants:
-    ALL = "All"
-    COVER_IMAGES = "Cover Images"
-    GENERATE_STORY = "Generate Story"
-    INSPECT_STORY = "Inspect Story"
-    SCENE_IMAGES = "Scene Images"
-    BG_MUSIC = "Background Music"
-    NARRATION = "Narration"
-    VALIDATE_ASSETS = "Validate Assets"
-
-
 SIDEBAR_OPTIONS = [
-    Constants.GENERATE_STORY,
     Constants.INSPECT_STORY,
     Constants.COVER_IMAGES,
     Constants.SCENE_IMAGES,
@@ -45,33 +34,16 @@ SIDEBAR_OPTIONS = [
 ]
 
 
-class Key:
-    COVER_IMAGES = "cover_images"
-    STORY_MAP = "story_map"
-    STORY_NAME = "story_name"
-    CHAPTER_NAME = "chapter_name"
-    COVER_IMAGE_SELECT = "cover_image_select"
-    ASPECT_RATIO = "aspect_ratio"
-    ASPECT_RATIO_MAP = "aspect_ratio_map"
-    STORY_PREMISE = "story_premise"
-    STORY_CHAPTER_COUNT = "story_chapter_count"
-    SCENE_IMAGES_STRUCTURE_SELECT = "scene_images_structure_select"
-    VALIDATE_ASSET = "validate_asset"
-
-
 def render_sidebar():
     story_map = get_key(Key.STORY_MAP)
-    aspect_ratio_map = get_key(Key.ASPECT_RATIO_MAP)
-    if aspect_ratio_map is None:
-        aspect_ratio_map = get_aspect_ratio_map()
-        set_key(Key.ASPECT_RATIO_MAP, aspect_ratio_map)
     if story_map is None:
         # Load stories map only once
         story_map = get_stories_map()
         set_key(Key.STORY_MAP, story_map)
     st.sidebar.selectbox("Select a story", list(story_map.keys()), key=Key.STORY_NAME)
     st.sidebar.selectbox("Select an option", SIDEBAR_OPTIONS, key=Key.COVER_IMAGES)
-    st.sidebar.radio("Select Aspect Ratio", list(aspect_ratio_map.keys()), key=Key.ASPECT_RATIO)
+    # st.page_link("pages/settings.py", label="Settings", icon="⚙️")
+    # st.sidebar.button("Settings", icon="⚙️", on_click=render_settings, type="tertiary")
 
 
 def render_scene_images():
@@ -83,7 +55,7 @@ def render_scene_images():
             st.toast("No image available for this structure.")
             return
         # print(f"Generating image for asset: {asset} and chapter: {chapter.title}")
-        aspect_ratio: AspectRatioDetails = get_key(Key.ASPECT_RATIO_MAP)[get_key(Key.ASPECT_RATIO)]
+        aspect_ratio: AspectRatioDetails = get_settings_ardetails()
         image_path = story.generate_image(
             asset, chapter, aspect_ratio=aspect_ratio, style=ImageStyle.STORY_BOOK_CLASSIC, force=True
         )
@@ -97,7 +69,7 @@ def render_scene_images():
         story.save()
 
     def get_image_prompt(image_asset: Asset):
-        aspect_ratio: AspectRatioDetails = get_key(Key.ASPECT_RATIO_MAP)[get_key(Key.ASPECT_RATIO)]
+        aspect_ratio: AspectRatioDetails = get_settings_ardetails()
         image_prompt = chapter.get_image_prompt(
             image_asset.text, aspect_ratio=aspect_ratio, style=ImageStyle.STORY_BOOK_CLASSIC
         )
@@ -113,6 +85,9 @@ def render_scene_images():
         set_key(Key.STORY_MAP, get_stories_map())
 
     story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+    if not story:
+        st.warning("No story selected.")
+        return
     chapters_map = get_chapters_map(story)
     st.title(f"Scene Images: {story.title}")
     selected_chapter = st.radio(
@@ -129,7 +104,7 @@ def render_scene_images():
         on_click=story.generate_images,
         kwargs={
             "chapter_index": chapter.chapter_number - 1,
-            "aspect_ratio": get_key(Key.ASPECT_RATIO_MAP)[get_key(Key.ASPECT_RATIO)],
+            "aspect_ratio": get_settings_ardetails(),
             "style": ImageStyle.STORY_BOOK_CLASSIC,
         },
     )
@@ -138,7 +113,7 @@ def render_scene_images():
         type="tertiary",
         on_click=generate_all_images,
         kwargs={
-            "aspect_ratio": get_key(Key.ASPECT_RATIO_MAP)[get_key(Key.ASPECT_RATIO)],
+            "aspect_ratio": get_settings_ardetails(),
             "style": ImageStyle.STORY_BOOK_CLASSIC,
         },
     )
@@ -201,7 +176,7 @@ def render_cover_images():
     def handle_generate_cover_image(**kwargs):
         chapter: Chapter = kwargs["chapter"]
         story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
-        aspect_ratio = get_key(Key.ASPECT_RATIO_MAP)[get_key(Key.ASPECT_RATIO)]
+        aspect_ratio = get_settings_ardetails()
         story.generate_cover_image(chapter, aspect_ratio, style=ImageStyle.STORY_BOOK_CLASSIC, force=True)
         stories_map = get_stories_map()
         set_key(Key.STORY_MAP, stories_map)
@@ -212,16 +187,19 @@ def render_cover_images():
         story.save()
 
     st.title(f"Cover Images: {get_key(Key.STORY_NAME)}")
-    chapters_cover_images_targets = get_cover_images_targets(get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)])
+    story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+    if not story:
+        st.warning("No story selected.")
+        return
+    chapters_cover_images_targets = get_cover_images_targets(story)
     selected_chapter = st.radio(
         "Select a chapter for cover images assets",
         list(chapters_cover_images_targets.keys()),
         key=Key.CHAPTER_NAME,
         horizontal=True,
     )
-    story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
     chapter: Chapter = get_chapters_map(story)[selected_chapter]
-    aspect_ratio: AspectRatioDetails = get_key(Key.ASPECT_RATIO_MAP)[get_key(Key.ASPECT_RATIO)]
+    aspect_ratio: AspectRatioDetails = get_settings_ardetails()
     ref_cover_image_path = story.get_reference_cover_image(chapter, aspect_ratio)
     selected_chapter = get_key(Key.CHAPTER_NAME)
     col1, col2 = st.columns([10, 2])
@@ -259,30 +237,15 @@ def render_cover_images():
         st.code(cover_image_prompt, wrap_lines=True)
 
 
-def render_generate_story():
-    st.title("Generate Story")
-
-    st.text_area("Story Premise", placeholder="Write your story premise here...", key=Key.STORY_PREMISE)
-    st.number_input("Number of Chapters", min_value=2, max_value=10, value=2, key=Key.STORY_CHAPTER_COUNT)
-
-    aspect_ratio: AspectRatioDetails = get_key(Key.ASPECT_RATIO_MAP)[get_key(Key.ASPECT_RATIO)]
-
-    if st.button("Generate Story", type="primary"):
-        if aspect_ratio.mode == "portrait":
-            premise = get_key(Key.STORY_PREMISE)
-            chapter_count = get_key(Key.STORY_CHAPTER_COUNT)
-            path = Story.generate_short_story(premise=premise, chapter_count=chapter_count)
-            st.toast(f"Story generated at: {path}")
-            get_stories_map()
-            set_key(Key.STORY_MAP, get_stories_map())
-
-
 def render_inspect_story():
     story_map = get_key(Key.STORY_MAP)
     if story_map is None:
         st.warning("No stories available to inspect.")
         return
     selected_story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+    if not selected_story:
+        st.warning("No story selected.")
+        return
     chapters_map = get_chapters_map(selected_story)
     st.title(f"Inspect Story: {selected_story.title}")
     st.radio(
@@ -303,14 +266,17 @@ def render_inspect_story():
 
 def render_background_music():
     st.title(f"Background Music: {get_key(Key.STORY_NAME)}")
-    chapters_map = get_chapters_map(get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)])
+    story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+    if not story:
+        st.warning("No story selected.")
+        return
+    chapters_map = get_chapters_map(story)
     selected_chapter = st.radio(
         "Select a chapter for bg music assets",
         list(chapters_map.keys()),
         key=Key.CHAPTER_NAME,
         horizontal=True,
     )
-    story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
     chapter: Chapter = get_chapters_map(story)[selected_chapter]
     st.button(
         "Generate BG Music",
@@ -339,6 +305,9 @@ def render_narration():
             story.generate_narrations(i)
 
     story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+    if not story:
+        st.warning("No story selected.")
+        return
     chapters_map = get_chapters_map(story)
     st.title(f"Narration: {story.title}")
     selected_chapter = st.radio(
@@ -380,6 +349,9 @@ def render_narration():
 
 def render_validate_assets():
     story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+    if not story:
+        st.warning("No story selected.")
+        return
     chapters_map = get_chapters_map(story)
     st.title(f"Validate Assets: {story.title}")
     selected_chapter = st.radio(
@@ -429,8 +401,6 @@ def render():
     sidebar_option = get_key(Key.COVER_IMAGES)
     if sidebar_option == Constants.COVER_IMAGES:
         render_cover_images()
-    elif sidebar_option == Constants.GENERATE_STORY:
-        render_generate_story()
     elif sidebar_option == Constants.INSPECT_STORY:
         render_inspect_story()
     elif sidebar_option == Constants.SCENE_IMAGES:

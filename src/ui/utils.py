@@ -5,7 +5,8 @@ from typing import Dict, List, Optional
 import streamlit as st
 
 from src.constants import AspectRatio, AspectRatioDetails
-from src.models import Asset, Chapter, Story, Target
+from src.models import Chapter, Settings, Story, Target
+from src.ui.constants import Key
 
 
 def get_key(key, default=None):
@@ -31,6 +32,33 @@ def get_stories_paths(base_path: str = ".data/story") -> list[str]:
     return story_paths
 
 
+def get_settings(settings_path: str = ".data/settings.json") -> Settings:
+    print(f"Loading settings from path: {settings_path}")
+    settings: Settings = get_key(Key.SETTINGS)
+    if settings:
+        set_key(Key.SETTINGS, settings)
+        return settings
+    if not os.path.exists(settings_path):
+        print(f"Settings path not found: {settings_path}")
+        settings = Settings()
+        settings.save(settings_path)
+        set_key(Key.SETTINGS, settings)
+        return settings
+    with open(settings_path, "r") as f:
+        data = json.load(f)
+        return Settings.model_validate(data)
+
+
+def get_settings_ardetails() -> str:
+    settings = get_settings()
+    return AspectRatio().get_details_by_mode(settings.image.aspect_ratio)
+
+
+def get_settings_chapter_count() -> int:
+    settings = get_settings()
+    return settings.story.chapter_count
+
+
 def get_story(story_path: str) -> Story:
     print(f"Loading story from path: {story_path}")
     with open(story_path, "r") as f:
@@ -40,7 +68,7 @@ def get_story(story_path: str) -> Story:
 
 def get_stories_map(base_path: str = ".data/story") -> dict[str, Story]:
     stories_path = get_stories_paths(base_path)
-    stories_map = {}
+    stories_map = {"": None}
     for story_path in stories_path:
         story = get_story(story_path)
         stories_map[story.title] = story
@@ -49,8 +77,9 @@ def get_stories_map(base_path: str = ".data/story") -> dict[str, Story]:
 
 def get_chapters_map(story: Story) -> dict[str, Chapter]:
     chapters_map = {}
-    for chapter in story.chapters:
-        chapters_map[chapter.title] = chapter
+    if story:
+        for chapter in story.chapters:
+            chapters_map[chapter.title] = chapter
     return chapters_map
 
 

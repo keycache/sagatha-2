@@ -3,7 +3,7 @@ import os
 import random
 import time
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
 
 from PIL import Image
 from PIL.ImageFile import ImageFile
@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from src.agent_gemini import generate_cover_image, generate_image, generate_raw_story, remove_watermark
 from src.agent_narration import generate_narration
-from src.constants import BASE_PATH, MUSIC_BASE_PATH, AspectRatioDetails, StructureType
+from src.constants import BASE_PATH, MUSIC_BASE_PATH, AspectRatio, AspectRatioDetails, StructureType
 from src.prompts import SYSTEM_PROMPT_SHORTS
 from src.styles import COVER_IMAGE_DESCRIPTION, ImageStyle
 from src.utils.helper import get_structure_prompts, to_kebab_case
@@ -41,6 +41,42 @@ def get_prompt_bank(structure_type: StructureType = None) -> List[str]:
             + BG_MUSIC_PROMPTS[StructureType.resolution]
         )
     return BG_MUSIC_PROMPTS[structure_type]
+
+
+class VideoSettings(BaseModel):
+    frame_rate: int = Field(default=30, description="Frame rate of the video")
+
+
+class AudioSettings(BaseModel):
+    bg_music_factor: float = Field(default=0.3, description="Volume of the background music")
+
+
+AR_Mode = Literal[tuple(AspectRatio().get_modes())]
+
+
+class ImageSettings(BaseModel):
+    image_style: ImageStyle = Field(
+        default=ImageStyle.STORY_BOOK_CLASSIC,
+        description="Image style to be used for generating images. This will be used to generate the images.",
+    )
+    aspect_ratio: AR_Mode = Field(AspectRatio.AR_9_16.mode, description="Aspect ratio of the image")
+
+
+class StorySettings(BaseModel):
+    chapter_count: int = Field(2, description="Number of chapters in the story")
+
+
+class Settings(BaseModel):
+    video: VideoSettings = Field(default=VideoSettings(), description="Video settings")
+    audio: AudioSettings = Field(default=AudioSettings(), description="Audio settings")
+    image: ImageSettings = Field(default=ImageSettings(), description="Image settings")
+    story: StorySettings = Field(default=StorySettings(), description="Story settings")
+
+    def save(self, file_path: str = ".data/settings.json") -> str:
+        with open(file_path, "w") as fh:
+            fh.write(self.model_dump_json(indent=2))
+        print(f"Settings saved to {file_path}")
+        return file_path
 
 
 class AssetType(str, Enum):
