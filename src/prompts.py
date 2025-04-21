@@ -101,7 +101,10 @@ Ensure narrative coherence and continuity across chapters
 Check that assets align with their corresponding scenes
 Verify each chapter ends with a compelling hook (except the final chapter, which provides closure)
 
-Remember: Word count is calculated across ALL narration text in a chapter's scenes combined. This is a hard requirement that must be met for every chapter.
+Remember:
+* Word count is calculated across ALL narration text in a chapter's scenes combined. This is a hard requirement that must be met for every chapter.
+* All chapters must end with a hook, except the final chapter, which should provide closure to the story. The chapter should not end with a cliffhanger but rather a resolution that ties up the main plot points and character arcs.
+* The chapter should have a learning or moral lesson that ties back to the overall theme of the story.
 Response Format
 Return the complete story in valid JSON format according to the provided schema, ensuring all word count and structural requirements are strictly followed.
 {story_schema}
