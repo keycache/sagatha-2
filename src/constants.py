@@ -4,7 +4,10 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
-AspectRatioDetails = namedtuple("AspectRatioDetails", ["ratio", "mode", "device", "height", "width", "duration"])
+AspectRatioDetails = namedtuple(
+    "AspectRatioDetails",
+    ["ratio", "mode", "device", "height", "width", "duration", "min_words_count", "max_words_count"],
+)
 
 # load_dotenv("../.env")
 
@@ -20,9 +23,36 @@ MUSIC_BASE_PATH = ".data/music"
 
 
 class AspectRatio:
-    AR_9_16 = AspectRatioDetails("9:16", "portrait", "mobile/phone", height=1080, width=1920, duration=178)
-    AR_16_9 = AspectRatioDetails("16:9", "landscape", "desktop", height=1920, width=1080, duration=1800)
-    AR_1_1 = AspectRatioDetails("1:1", "square", "mobile/phone", height=1024, width=1024, duration=178)
+    AR_9_16 = AspectRatioDetails(
+        "9:16",
+        "portrait",
+        "mobile/phone",
+        height=1920,
+        width=1080,
+        duration=178,
+        min_words_count=450,
+        max_words_count=500,
+    )
+    AR_16_9 = AspectRatioDetails(
+        "16:9",
+        "landscape",
+        "desktop",
+        height=1080,
+        width=1920,
+        duration=1800,
+        min_words_count=None,
+        max_words_count=None,
+    )
+    AR_1_1 = AspectRatioDetails(
+        "1:1",
+        "square",
+        "mobile/phone",
+        height=1024,
+        width=1024,
+        duration=178,
+        min_words_count=None,
+        max_words_count=None,
+    )
 
     def get_modes(self):
         return [ar.mode for ar in self.__class__.__dict__.values() if isinstance(ar, AspectRatioDetails)]

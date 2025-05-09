@@ -4,6 +4,9 @@ import json
 import re
 import time
 
+# import nltk
+from nltk.tokenize import word_tokenize
+
 from src.constants import StructureType
 from src.utils.file import save_file
 
@@ -46,6 +49,10 @@ def get_structure_prompts(structure_type: StructureType, prompts_file_path=".dat
         data = file.read()
     data = json.loads(data)
     return data.get(structure_type.name, [])
+
+
+def get_word_count(text: str) -> int:
+    return len(word_tokenize(text))
 
 
 if __name__ == "__main__":

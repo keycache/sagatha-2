@@ -1,4 +1,3 @@
-import os
 import pathlib
 import subprocess
 from io import BytesIO
@@ -12,6 +11,7 @@ from PIL.ImageFile import ImageFile
 from pydantic import BaseModel
 
 from src.constants import GEMINI_API_KEY
+from src.utils.helper import timeit
 
 # res = load_dotenv("/Users/akashpatki/Documents/kash/code/moon/sagatha-2/.env")
 # print(f"res------------: {res}")
@@ -35,21 +35,16 @@ def get_config():
 
 
 def generate_image(
-    prompt, cover_image_path: str, model: str = "gemini-2.0-flash-exp-image-generation"
+    prompt, cover_image_path: str = None, model: str = "gemini-2.0-flash-exp-image-generation"
 ) -> Optional[ImageFile]:
     print("(generate_image)Generating image...")
     print(f"(generate_image)Prompt: {prompt}, Cover Image Path: {cover_image_path}")
     client = genai.Client(api_key=GEMINI_API_KEY)
     config = get_config()
-    contents = [
-        types.Content(
-            role="user",
-            parts=[
-                types.Part.from_text(text=prompt),
-                types.Part.from_bytes(data=pathlib.Path(cover_image_path).read_bytes(), mime_type="image/png"),
-            ],
-        ),
-    ]
+    parts = [types.Part.from_text(text=prompt)]
+    if cover_image_path:
+        parts.append(types.Part.from_bytes(data=pathlib.Path(cover_image_path).read_bytes(), mime_type="image/png"))
+    contents = [types.Content(role="user", parts=parts)]
     response = client.models.generate_content(model=model, contents=contents, config=config)
 
     try:
@@ -112,6 +107,7 @@ def remove_watermark(image_path: str, output_path: str):
     return None
 
 
+@timeit
 def generate_raw_story(
     model: BaseModel,
     system_prompt: str,
@@ -130,5 +126,23 @@ def generate_raw_story(
     print(f"(generate_raw_story)Generating story with model: {model_id}")
     print(f"(generate_raw_story)System Prompt: {system_prompt}")
     print(f"(generate_raw_story)User Prompt: {user_prompt}")
+    response = client.models.generate_content(model=model_id, contents=contents, config=config)
+    return response.parsed
+
+
+@timeit
+def get_agent_response(
+    response_model: BaseModel, system_prompt: str, query: str, model_id: str = "gemini-2.5-pro-preview-03-25"
+) -> BaseModel:
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    config = {"response_mime_type": "application/json", "response_schema": response_model}
+
+    contents = [
+        types.Content(role="model", parts=[types.Part.from_text(text=system_prompt)]),
+        types.Content(role="user", parts=[types.Part.from_text(text=query)]),
+    ]
+    print(f"(get_agent_response)Generating story with model: {model_id}")
+    print(f"(get_agent_response)System Prompt: {system_prompt}")
+    print(f"(get_agent_response)User Prompt: {query}")
     response = client.models.generate_content(model=model_id, contents=contents, config=config)
     return response.parsed

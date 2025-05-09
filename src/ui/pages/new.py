@@ -22,7 +22,6 @@ if st.button("Generate Story", type="primary"):
     if aspect_ratio.mode == "portrait":
         premise = get_key(Key.STORY_PREMISE)
         chapter_count = get_key(Key.STORY_CHAPTER_COUNT)
-        path = Story.generate_short_story(premise=premise, chapter_count=chapter_count)
+        path = Story.generate_short_story(premise=premise, chapter_count=chapter_count, post_process=True)
         st.toast(f"Story generated at: {path}")
-        get_stories_map()
         set_key(Key.STORY_MAP, get_stories_map())

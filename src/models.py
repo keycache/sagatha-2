@@ -9,7 +9,13 @@ from PIL import Image
 from PIL.ImageFile import ImageFile
 from pydantic import BaseModel, Field
 
-from src.agent_gemini import generate_cover_image, generate_image, generate_raw_story, remove_watermark
+from src.agent_gemini import (
+    generate_cover_image,
+    generate_image,
+    generate_raw_story,
+    get_agent_response,
+    remove_watermark,
+)
 from src.agent_narration import generate_narration
 from src.constants import (
     BASE_PATH,
@@ -20,9 +26,13 @@ from src.constants import (
     ResourceTarget,
     StructureType,
 )
-from src.prompts import SYSTEM_PROMPT_SHORTS
+from src.prompts import (
+    get_system_prompt_for_narration_text_segmentation,
+    get_system_prompt_for_short_form,
+    get_system_prompt_reduce_word_count,
+)
 from src.styles import COVER_IMAGE_DESCRIPTION, ImageStyle
-from src.utils.helper import get_structure_prompts, to_kebab_case
+from src.utils.helper import get_structure_prompts, get_word_count, to_kebab_case
 
 STRUCTURE_EXPOSITION_BG_MUSIC_PROMPTS = get_structure_prompts(StructureType.exposition)
 STRUCTURE_RISING_ACTION_BG_MUSIC_PROMPTS = get_structure_prompts(StructureType.rising_action)
@@ -60,6 +70,29 @@ class AudioSettings(BaseModel):
 
 
 AR_Mode = Literal[tuple(AspectRatio().get_modes())]
+
+
+class WordCountResponse(BaseModel):
+    text: str = Field(..., description="The output based on the input text and system prompt")
+
+
+class NarrationToImagePrompt(BaseModel):
+    text: str = Field(
+        ...,
+        description="A verbatim part of text of the narration, small enough to visually capture an aspect of the scene, but not long where the image would fail to capture the text. Every 2 sentences should be a new image.",
+    )
+    prompt: str = Field(..., description="The prompt to be used for generating the image")
+
+
+class NarrationToImagePromptResponse(BaseModel):
+    input: str = Field(..., description="The input text processed")
+    data: List[NarrationToImagePrompt] = Field(
+        ..., description="The list of image prompts generated from the input text"
+    )
+    input: str = Field(..., description="The input text processed")
+    data: List[NarrationToImagePrompt] = Field(
+        ..., description="The list of image prompts generated from the input text"
+    )
 
 
 class ImageSettings(BaseModel):
@@ -107,6 +140,7 @@ class Asset(BaseModel):
     type: AssetType = Field(..., description="Type of the asset")
     text: str = Field(..., description="Prompt/Text for the asset")
     targets: Optional[List[Target]] = None
+    # aspect_ratio: Optional[ResourceMode] = Field(ResourceMode.PORTRAIT, description="Aspect ratio of the asset")
 
 
 class Character(BaseModel):
@@ -123,23 +157,13 @@ class Prompt(BaseModel):
 
 
 class Scene(BaseModel):
-    image: List[Asset] = Field(
-        ...,
-        description="""Image Assets to visually portray the scene. Depending on the length of narration, plas adjust the entries accordingly. Thumb rule: 1 image per 20-30 words of narration. Ensure that the image assets are relevant to the narration and in order. The image assets should be in the same order as the narration. Ensure a maximum of 3 characters to be present in the image prompt. If more are needed, include them in the background. The prompt should be atleast 15 to 20 words long. Generate the prompt using the following template:
-Scene: [Brief description of environment and lighting]
-
-Characters:
-- [Character 1 name]: [physical description, clothing, accessories, expressions]
-- [Character 2 name]: [same]
-- [Character 3 name]: [same]
-
-Layout: [Describe spatial relationships — left/right/centered, heights, poses, eye contact, interactions]
-
-View: [camera angle — front view, side view, from above, etc.]
-
-Consistency Note: Maintain all character appearances and proportions from earlier scenes.
-""",
-    )
+    image: Optional[List[Asset]] = None
+    #     Field(
+    #         ...,
+    #         description=f"""Image Assets to visually portray the scene. Depending on the length of narration, adjust the entries accordingly. Split the scene into images at logical breaks. Aim for segments that are visually distinct or can be represented in a manageable unit for image generation. Avoid creating a prompt that has too many details. Avoid making prompt excessively long. Ensure that the image assets are in order and relevant to the narration. The image assets should be in the same order as the narration. Ensure the image prompt always incudes at least the protagonist or maximum of 3 characters(including the protagonist) in the image prompt. A general thumb rule, one image for every 15-20 words or per logical group of actions in the narration text. The image prompts should be descriptive and focused on visual elements, suitable for a modern text-to-image diffusion model. Include the character descriptions, thier physical looks, in terms of thie heigh, dress, color, etc(relevant to story telling and keeping the character's look consistent).  Generate the prompt using the following template:
+    # {IMAGE_PROMPT_FORMAT}
+    # """,
+    #     )
     narration: Asset = Field(
         ...,
         description="The text needed for narration of the scene. This is the text that will be read out loud. This progresses the story.",
@@ -195,6 +219,7 @@ class Chapter(BaseModel):
     )
     cover_image: Asset = Field(..., description=COVER_IMAGE_DESCRIPTION)
     resources: Optional[List[Resource]] = None
+    # story: Optional["Story"] = Field(default=None, exclude=True)
 
     def add_resource(self, aspect_ratio: AspectRatioDetails, file_path: str) -> Resource:
         if self.resources is None:
@@ -241,6 +266,7 @@ class Chapter(BaseModel):
         self,
         prompt: str,
         aspect_ratio: AspectRatioDetails,
+        protagonist: Character,
         style: ImageStyle = None,
     ) -> str:
         return f"""
@@ -250,13 +276,24 @@ An {aspect_ratio.mode} image in the following style: {style.value}.
 
 {prompt}
 
+These are the details of the protagonist:
+{protagonist.model_dump_json()}
+
+These are the relevant characters in the chapter:
+{[character.model_dump_json() for character in self.characters]}
+Use only the relevant character descriptions from above to generate the image.
+
 Specifically, the image must be in a {aspect_ratio.ratio} ({aspect_ratio.mode}) aspect ratio for {aspect_ratio.device} screens.
 Generate image using the style from the attached image.
 Do not generate image as a collage.
 """
 
     def get_cover_image_prompt(
-        self, ref_cover_image_available: bool, aspect_ratio: AspectRatioDetails, style: ImageStyle
+        self,
+        ref_cover_image_available: bool,
+        aspect_ratio: AspectRatioDetails,
+        style: ImageStyle,
+        protagonist: Character,
     ) -> str:
         style_instructions = (
             "Generate image using the style from the attached image. Maintain the similar image style."
@@ -264,10 +301,18 @@ Do not generate image as a collage.
             else ""
         )
         prompt = f"""
-Generate a {aspect_ratio.ratio} aspect ratio {aspect_ratio.mode} image for the cover image of the chapter based on the following prompt:
-A{aspect_ratio.mode} with following details:\n{self.cover_image.text}
+Generate a {aspect_ratio.ratio} aspect ratio, {aspect_ratio.mode} image for the cover image of the chapter based on the following prompt:
+A {aspect_ratio.mode} image, e.g. dimensions({aspect_ratio.width}x{aspect_ratio.height}) with following details:\n{self.cover_image.text}
 Generate the image in the style of a {style.value}.
-The only words allowed in the image are the chapter title. Do not include any other text in the image.
+
+These are the details of the protagonist:
+{protagonist.model_dump_json()}
+
+These are the relevant characters in the chapter:
+{[character.model_dump_json() for character in self.characters]}
+
+Generate the image as a collage of all the characters in the chapter. Ensure the protagonist is present and title is displayed on the image. The only words allowed in the image are the chapter title. Do not include any other text in the image.
+
 {style_instructions}
 """
         return prompt
@@ -276,30 +321,83 @@ The only words allowed in the image are the chapter title. Do not include any ot
         self,
         aspect_ratio: AspectRatioDetails,
         style: ImageStyle,
+        protagonist: Character,
         ref_cover_image_path: str = None,
     ) -> ImageFile:
         cover_image_prompt = self.get_cover_image_prompt(
-            ref_cover_image_path=bool(ref_cover_image_path), aspect_ratio=aspect_ratio, style=style
+            ref_cover_image_path=bool(ref_cover_image_path),
+            aspect_ratio=aspect_ratio,
+            style=style,
+            protagonist=protagonist,
         )
         cover_image = generate_cover_image(prompt=cover_image_prompt)
         return cover_image
-
-    # def generate_images(self, protagonist: Character):
-
-    #     cover_image = self.generate_cover_image(protagonist=protagonist)
-    #     for structure in self.structures:
-    #         for scene in structure.scenes:
-    #             for asset in scene.image:
-    #                 image_prompt = self.get_image_prompt(asset.text, protagonist=protagonist)
-    #                 image = generate_image(prompt=image_prompt, cover_image=cover_image)
-    #                 asset.target[0].value = image
 
 
 class Story(BaseModel):
     title: str = Field(..., description="Title of the story")
     moral: str = Field(..., description="The moral of the story")
+    premise: Optional[str] = Field(None, description="The premise of the story, input by the user")
     protagonist: Character = Field(..., description="Main character of the story")
     chapters: List[Chapter] = Field(..., description="List of chapters in the story")
+
+    # def model_post_init(self, *args, **kwargs):
+    #     print("*" * 30)
+    #     print(f"Post init for story: {self.title}")
+    #     for chapter in self.chapters:
+    #         chapter.story = self
+
+    def post_process_structures_conform_word_count(self, aspect_ratio_details: AspectRatioDetails):
+        print("Post processing structures to conform to word count...")
+        schema = WordCountResponse.model_json_schema()
+        for chapter in self.chapters:
+            updated = False
+            chapter_word_count = chapter.get_word_count()
+            if not chapter_word_count > 1.1 * aspect_ratio_details.max_words_count:
+                continue
+            for structure in chapter.structures:
+                for scene in structure.scenes:
+                    narration_word_count = get_word_count(scene.narration.text)
+                    system_prompt = get_system_prompt_reduce_word_count(
+                        aspect_ratio_details.max_words_count, narration_word_count, schema=schema
+                    )
+                    response: WordCountResponse = get_agent_response(
+                        system_prompt=system_prompt,
+                        query=scene.narration.text,
+                        model_id="gemini-2.0-flash",
+                        response_model=WordCountResponse,
+                    )
+                    scene.narration.text = response.text
+                    updated = True
+                    print("Sleeping for 2 seconds to avoid rate limiting")
+                    time.sleep(2)
+            if updated:
+                print(f"Chapter: {chapter.title} updated with new narration.")
+                self.save()
+
+    def post_process_structures_enrich_images(self):
+        print("Post processing structures to enrich images...")
+        schema = NarrationToImagePromptResponse.model_json_schema()
+        system_prompt = get_system_prompt_for_narration_text_segmentation(schema=schema)
+        for chapter in self.chapters:
+            print(f"Processing chapter: {chapter.title}")
+            for structure in chapter.structures:
+                print(f"Processing structure: {structure.type.value}")
+                for scene in structure.scenes:
+                    response: NarrationToImagePromptResponse = get_agent_response(
+                        response_model=NarrationToImagePromptResponse,
+                        system_prompt=system_prompt,
+                        query=scene.narration.text,
+                        model_id="gemini-2.5-flash-preview-04-17",
+                    )
+                    scene.image = [Asset(type=AssetType.IMAGE, text=item.prompt) for item in response.data]
+                    print("Sleeping for 2 seconds to avoid rate limiting")
+                    self.save()
+                    time.sleep(2)
+
+    def post_process(self, aspect_ratio_details: AspectRatioDetails):
+        self.post_process_structures_conform_word_count(aspect_ratio_details=aspect_ratio_details)
+        self.post_process_structures_enrich_images()
 
     def get_base_image_prompt(self, chapter_number: int):
         return f"""
@@ -325,8 +423,8 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
             story_folder, f"{chapter.chapter_number}-{to_kebab_case(chapter.title)}", aspect_ratio.mode
         )
         os.makedirs(chapter_path, exist_ok=True)
-        cover_image_path = os.path.join(chapter_path, f"{to_kebab_case(chapter.title)}-cover-image-{version}.png")
-        cover_image.save(cover_image_path)
+        cover_image_path = os.path.join(chapter_path, f"{to_kebab_case(chapter.title)}-cover-image-{version}.jpg")
+        cover_image.save(cover_image_path, optimize=True)
         return cover_image_path
 
     def save_image(self, image: ImageFile, chapter: Chapter, suffix: str, aspect_ratio: AspectRatioDetails) -> str:
@@ -335,8 +433,8 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
             story_folder, f"{chapter.chapter_number}-{to_kebab_case(chapter.title)}", aspect_ratio.mode
         )
         os.makedirs(chapter_path, exist_ok=True)
-        image_path = os.path.join(chapter_path, f"{to_kebab_case(chapter.title)}-image-{suffix}.png")
-        image.save(image_path)
+        image_path = os.path.join(chapter_path, f"{to_kebab_case(chapter.title)}-image-{suffix}.jpg")
+        image.save(image_path, optimize=True)
         return image_path
 
     def get_active_target(self, asset: Asset) -> Optional[Target]:
@@ -361,16 +459,26 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
             ref_cover_image_path = self.get_reference_cover_image(chapter, aspect_ratio)
 
             cover_image_prompt = chapter.get_cover_image_prompt(
-                aspect_ratio=aspect_ratio, style=style, ref_cover_image_available=bool(ref_cover_image_path)
+                aspect_ratio=aspect_ratio,
+                style=style,
+                ref_cover_image_available=bool(ref_cover_image_path),
+                protagonist=self.protagonist,
             )
             cover_image: ImageFile = generate_cover_image(
                 prompt=cover_image_prompt,
                 ref_cover_image_path=ref_cover_image_path,
             )
+            print(f"(generate_cover_image)Cover Image generated: {cover_image.width}x{cover_image.height}")
             target_version = 0 if chapter.cover_image.targets is None else len(chapter.cover_image.targets)
             cover_image_path = self.save_cover_image(
                 cover_image, chapter, version=target_version, aspect_ratio=aspect_ratio
             )
+            remove_watermark(cover_image_path, cover_image_path)
+            cover_image = cover_image.resize((aspect_ratio.width, aspect_ratio.height))
+            cover_image_path = self.save_cover_image(
+                cover_image, chapter, version=target_version, aspect_ratio=aspect_ratio
+            )
+
             _ = self.handle_asset(chapter.cover_image, cover_image_path)
         else:
             print(f"(generate_cover_image)Cover Image already exists: {cover_image_target.value}")
@@ -391,7 +499,13 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
                         return f"{i}-{j}"
 
     def generate_image(
-        self, image_asset: Asset, chapter: Chapter, aspect_ratio: AspectRatioDetails, style: ImageStyle, force=False
+        self,
+        image_asset: Asset,
+        chapter: Chapter,
+        aspect_ratio: AspectRatioDetails,
+        style: ImageStyle,
+        image_prompt: str = None,
+        force=False,
     ) -> str:
         suffix = self._get_suffix(chapter, image_asset)
         image_target = self.get_active_target(image_asset)
@@ -399,7 +513,9 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
             print(f"(generate_image)Generating Image for {chapter.title} - {image_asset.text}")
             cover_image_path = self.generate_cover_image(chapter=chapter, aspect_ratio=aspect_ratio, style=style)
 
-            image_prompt = chapter.get_image_prompt(image_asset.text, aspect_ratio=aspect_ratio, style=style)
+            image_prompt = image_prompt or chapter.get_image_prompt(
+                image_asset.text, aspect_ratio=aspect_ratio, style=style, protagonist=self.protagonist
+            )
             image: ImageFile = generate_image(prompt=image_prompt, cover_image_path=cover_image_path)
             # image: ImageFile = generate_image(prompt=image_prompt, cover_image=Image.open(cover_image_path))
 
@@ -408,7 +524,7 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
             image_path = self.save_image(image, chapter, suffix=f"{suffix}-{target_version}", aspect_ratio=aspect_ratio)
             # post process - resize, remove watermark, etc.
             remove_watermark(image_path, image_path)
-            image = image.resize((aspect_ratio.height, aspect_ratio.width))
+            image = image.resize((aspect_ratio.width, aspect_ratio.height))
             image_path = self.save_image(image, chapter, suffix=f"{suffix}-{target_version}", aspect_ratio=aspect_ratio)
             _ = self.handle_asset(image_asset, image_path)
         else:
@@ -693,12 +809,15 @@ Generate a 9:16 ratio image for the cover image of the chapter based on the foll
         # return cover_image_path if os.path.exists(cover_image_path) else None
 
     @staticmethod
-    def generate_short_story(premise, chapter_count=8) -> str:
+    def generate_short_story(premise, chapter_count=8, post_process: bool = False) -> str:
 
-        system_prompt = SYSTEM_PROMPT_SHORTS.format(story_schema=Story.model_json_schema())
+        system_prompt = get_system_prompt_for_short_form(story_schema=Story.model_json_schema())
         story: Story = generate_raw_story(
             model=Story, system_prompt=system_prompt, premise=premise, chapter_count=chapter_count
         )
+        print(f"Generated story: {story.title}")
+        if post_process:
+            story.post_process()
         return story.save()
 
     def add_resource(self, chapter: Chapter, aspect_ratio: AspectRatioDetails, file_path: str):

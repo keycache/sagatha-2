@@ -3,7 +3,7 @@ import pyperclip
 import streamlit as st
 
 from src.constants import AspectRatioDetails
-from src.models import Asset, Chapter, Story, Structure
+from src.models import Asset, Chapter, Story
 from src.styles import ImageStyle
 from src.ui.constants import Constants, Key
 from src.ui.utils import (
@@ -47,17 +47,25 @@ def render_sidebar():
 
 
 def render_scene_images():
-    def handle_generate_cover_image(**kwargs):
+    def handle_generate_image(**kwargs):
         asset: Asset = kwargs["asset"]
         chapter: Chapter = kwargs["chapter"]
         story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+
         if asset is None:
             st.toast("No image available for this structure.")
             return
         # print(f"Generating image for asset: {asset} and chapter: {chapter.title}")
         aspect_ratio: AspectRatioDetails = get_settings_ardetails()
+        image_prompt: str = get_key(kwargs["image_prompt_key"])
+        print(f"--------------------------------- Image prompt ---------------------------------: {image_prompt}")
         image_path = story.generate_image(
-            asset, chapter, aspect_ratio=aspect_ratio, style=ImageStyle.STORY_BOOK_CLASSIC, force=True
+            asset,
+            chapter,
+            aspect_ratio=aspect_ratio,
+            style=ImageStyle.STORY_BOOK_CLASSIC,
+            image_prompt=image_prompt,
+            force=True,
         )
         st.toast(f"Image generated at: {image_path}")
         set_key(Key.STORY_MAP, get_stories_map())
@@ -70,8 +78,12 @@ def render_scene_images():
 
     def get_image_prompt(image_asset: Asset):
         aspect_ratio: AspectRatioDetails = get_settings_ardetails()
+        story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
         image_prompt = chapter.get_image_prompt(
-            image_asset.text, aspect_ratio=aspect_ratio, style=ImageStyle.STORY_BOOK_CLASSIC
+            image_asset.text,
+            aspect_ratio=aspect_ratio,
+            style=ImageStyle.STORY_BOOK_CLASSIC,
+            protagonist=story.protagonist,
         )
         return image_prompt
 
@@ -83,6 +95,15 @@ def render_scene_images():
             print(f"Generating images for chapter-{i}: {chapter.title}")
             story.generate_images(i, aspect_ratio=aspect_ratio, style=style)
         set_key(Key.STORY_MAP, get_stories_map())
+
+    def handle_image_prompt_change(**kwargs):
+        story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
+        chapter: Chapter = story.chapters[kwargs["chapter_index"]]
+        structure: Chapter.Structure = chapter.structures[kwargs["structure_index"]]
+        scene: Chapter.Scene = structure.scenes[kwargs["scene_index"]]
+        image: Asset = scene.image[kwargs["image_index"]]
+        image.text = get_key(kwargs["image_prompt_key"])
+        story.save()
 
     story: Story = get_key(Key.STORY_MAP)[get_key(Key.STORY_NAME)]
     if not story:
@@ -117,59 +138,82 @@ def render_scene_images():
             "style": ImageStyle.STORY_BOOK_CLASSIC,
         },
     )
-    structures_col, scenes_col = st.columns([3, 9])
-    with structures_col:
-        st.header("Structures")
-        structure_names = [structure.type.value for structure in chapter.structures]
-        st.radio(
-            "Select a structure",
-            structure_names,
-            key=Key.SCENE_IMAGES_STRUCTURE_SELECT,
-            horizontal=False,
-        )
 
-    with scenes_col:
-        st.header("Scenes")
-        selected_structure = get_key(Key.SCENE_IMAGES_STRUCTURE_SELECT)
-        structure: Structure = chapter.get_structure(selected_structure)
-        for i, scene in enumerate(structure.scenes):
-            for j, image in enumerate(scene.image):
-                targets = image.targets
-                col1, col2 = st.columns([9, 3])
-                col1.header(f"Scene {i + 1} - Image {j + 1}")
-                col2.button(
-                    "Generate New Image",
-                    type="primary",
-                    key=f"generate_image_{i}_{j}",
-                    on_click=handle_generate_cover_image,
-                    kwargs={"asset": image, "chapter": chapter},
+    st.header("Scenes")
+    print(f"Structures: {len(chapter.structures)}")
+    for n, structure in enumerate(chapter.structures):
+        with st.expander(f"Structure: {structure.type.value}"):
+            ### Summary of number of images in each structure
+            for scene in structure.scenes:
+                st.write(
+                    f"Structure: {structure.type.value}, Scenes: {len(structure.scenes)}, Images: {len(scene.image or [])}"
                 )
 
-                if targets:
-                    with st.container():
-                        for k, col in enumerate(st.columns(len(targets))):
-                            with col:
-                                st.image(targets[k].value, width=300)
-                                st.checkbox(
-                                    " ",
-                                    value=targets[k].active,
-                                    key=f"checkbox_{i}_{j}_{k}",
-                                    on_change=handle_check,
-                                    kwargs={"index": k, "targets": targets},
-                                    disabled=len(targets) <= 1,
-                                )
-                                st.button(
-                                    ":clipboard:",
-                                    key=f"copy_{i}_{j}_{k}",
-                                    on_click=pyperclip.copy,
-                                    args=(targets[k].value,),
-                                )
-                else:
-                    st.warning("No images available for this scene.")
-                with st.expander("Image Prompt", expanded=False):
-                    image_prompt = get_image_prompt(image)
-                    st.markdown("### Image Prompt")
-                    st.code(image_prompt, wrap_lines=True)
+            for i, scene in enumerate(structure.scenes):
+                for j, image in enumerate(scene.image or []):
+                    targets = image.targets
+                    st.divider()
+                    col1, col2 = st.columns([9, 3])
+                    col1.header(f"Scene {i + 1} of {len(structure.scenes)} - Image {j + 1} of {len(scene.image)}")
+                    col2.button(
+                        "Generate New Image",
+                        type="primary",
+                        key=f"generate_image_{n}_{i}_{j}",
+                        on_click=handle_generate_image,
+                        kwargs={"asset": image, "chapter": chapter, "image_prompt_key": f"image_prompt_{n}_{i}_{j}"},
+                    )
+                    st.markdown(f"#### {scene.narration.text}")
+                    if targets:
+                        with st.container():
+                            for k, col in enumerate(st.columns(len(targets))):
+                                with col:
+                                    st.image(targets[k].value, width=300)
+                                    st.checkbox(
+                                        " ",
+                                        value=targets[k].active,
+                                        key=f"checkbox_{n}_{i}_{j}_{k}",
+                                        on_change=handle_check,
+                                        kwargs={"index": k, "targets": targets},
+                                        disabled=len(targets) <= 1,
+                                    )
+                                    st.button(
+                                        ":clipboard:",
+                                        key=f"copy_{n}_{i}_{j}_{k}",
+                                        on_click=pyperclip.copy,
+                                        args=(targets[k].value,),
+                                    )
+                    else:
+                        st.warning("No images available for this scene.")
+                    if st.toggle("Image Text", value=True, key=f"image_text_toggle_{n}_{i}_{j}"):
+                        st.text_area(
+                            "Image Prompt",
+                            image.text.strip(),
+                            key=f"image_prompt_{n}_{i}_{j}",
+                            height=400,
+                            on_change=handle_image_prompt_change,
+                            kwargs={
+                                "chapter_index": chapter.chapter_number - 1,
+                                "structure_index": n,
+                                "scene_index": i,
+                                "image_index": j,
+                                "image_prompt_key": f"image_prompt_{n}_{i}_{j}",
+                            },
+                        )
+                    else:
+                        st.text_area(
+                            "Image Prompt",
+                            get_image_prompt(image).strip(),
+                            key=f"image_prompt_{n}_{i}_{j}",
+                            height=400,
+                            on_change=handle_image_prompt_change,
+                            kwargs={
+                                "chapter_index": chapter.chapter_number - 1,
+                                "structure_index": n,
+                                "scene_index": i,
+                                "image_index": j,
+                                "image_prompt_key": f"image_prompt_{n}_{i}_{j}",
+                            },
+                        )
 
 
 def render_cover_images():
@@ -212,26 +256,28 @@ def render_cover_images():
     )
 
     targets = chapters_cover_images_targets[selected_chapter]
-    if not targets:
-        st.warning("No cover images available for this chapter.")
-        return
+    # if not targets:
+    #     st.warning("No cover images available for this chapter.")
+    #     return
     with st.container():
-        for i, col in enumerate(st.columns(len(targets))):
-            with col:
-                st.image(targets[i].value, width=300)
-                st.checkbox(
-                    " ",
-                    value=targets[i].active,
-                    key=f"checkbox_{i}",
-                    on_change=handle_check,
-                    kwargs={"index": i, "targets": targets},
-                    disabled=len(targets) <= 1,
-                )
-                st.button(":clipboard:", key=f"copy_{i}", on_click=pyperclip.copy, args=(targets[i].value,))
+        if targets:
+            for i, col in enumerate(st.columns(len(targets))):
+                with col:
+                    st.image(targets[i].value, width=300)
+                    st.checkbox(
+                        " ",
+                        value=targets[i].active,
+                        key=f"checkbox_{i}",
+                        on_change=handle_check,
+                        kwargs={"index": i, "targets": targets},
+                        disabled=len(targets) <= 1,
+                    )
+                    st.button(":clipboard:", key=f"copy_{i}", on_click=pyperclip.copy, args=(targets[i].value,))
     cover_image_prompt = chapter.get_cover_image_prompt(
         aspect_ratio=aspect_ratio,
         ref_cover_image_available=bool(ref_cover_image_path),
         style=ImageStyle.STORY_BOOK_CLASSIC,
+        protagonist=story.protagonist,
     )
     with st.expander("Cover Image Prompt", expanded=False):
         st.code(cover_image_prompt, wrap_lines=True)
@@ -355,7 +401,7 @@ def render_validate_assets():
     chapters_map = get_chapters_map(story)
     st.title(f"Validate Assets: {story.title}")
     selected_chapter = st.radio(
-        "Select a chapter for narration assets",
+        "Select a chapter for assets validation",
         list(chapters_map.keys()) + [Constants.ALL],
         key=Key.CHAPTER_NAME,
         horizontal=True,

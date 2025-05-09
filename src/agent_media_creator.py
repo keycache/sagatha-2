@@ -111,7 +111,7 @@ def create_intro_video(chapter: Chapter, story: Story, aspect_ratio: AspectRatio
         "anullsrc=channel_layout=stereo:sample_rate=44100",
         "-shortest",
         "-vf",
-        f"scale={aspect_ratio.height}:{aspect_ratio.width},fps={VIDEO_FPS}",
+        f"scale={aspect_ratio.width}:{aspect_ratio.height},fps={VIDEO_FPS}",
         "-c:v",
         "libx264",
         "-c:a",
